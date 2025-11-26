@@ -122,14 +122,20 @@ def generate_response(message: str) -> str:
         
         if context:
             augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
-Based on the following research context from SAFI papers, answer the question accurately and concisely.
+Answer the question accurately and concisely using the SAFI knowledge provided below.
 
 SAFI Knowledge:
 {context}
 
 Question: {message}
 
-Provide a clear, accurate answer based on the research context. If the context doesn't contain enough information, say so and provide general knowledge while noting it's not from the papers."""
+Instructions:
+- Provide a clear, accurate answer using the SAFI knowledge above
+- When referencing information, say "According to SAFI knowledge" or "Based on SAFI research"
+- If the SAFI knowledge doesn't contain enough information, clearly state that and provide general knowledge while noting it's not from SAFI papers
+- Do not use phrases like "research context" or "provided context"
+
+Answer:"""
         else:
             augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
 
