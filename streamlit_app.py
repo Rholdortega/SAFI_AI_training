@@ -119,7 +119,7 @@ def generate_response(message: str) -> str:
         return "⚠️ API key not configured."
     
     try:
-       # Expand query with synonyms for better retrieval
+        # Expand query with synonyms for better retrieval
         expanded_query = message
         if "carbon footprint" in message.lower() or "gwp" in message.lower():
             expanded_query = f"{message} global warming potential CO2 emissions kg ADt ton"
@@ -128,14 +128,6 @@ def generate_response(message: str) -> str:
         
         if context:
             augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
-Answer the question accurately and concisely using the SAFI knowledge provided below.
-
-SAFI Knowledge:
-{context}
-
-Question: {message}
-
-augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
 Answer the question accurately and concisely using the SAFI knowledge provided below.
 
 SAFI Knowledge:
@@ -155,8 +147,7 @@ Instructions:
 
 Answer:"""
         else:
-            augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
-            Answer the question accurately and concisely using the SAFI knowledge provided below.
+            augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
 
 Question: {message}
 
@@ -166,7 +157,6 @@ Answer:"""
         return response.text
     except Exception as e:
         return f"Error: {str(e)}"
-        
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
