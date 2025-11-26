@@ -7,6 +7,7 @@ from typing import List
 import numpy as np
 import PyPDF2
 import requests
+import time
 from io import BytesIO
 
 # Page config
@@ -70,7 +71,7 @@ def fetch_pdf_from_doi(doi: str) -> str:
     except Exception as e:
         return f"Error fetching DOI: {str(e)}"
 
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
+def chunk_text(text: str, chunk_size: int = 1500, overlap: int = 300) -> List[str]:
     """Split text into overlapping chunks"""
     chunks = []
     start = 0
@@ -91,7 +92,7 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     b = np.array(b)
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def retrieve_relevant_context(query: str, top_k: int = 3) -> str:
+def retrieve_relevant_context(query: str, top_k: int = 5) -> str:
     """Retrieve most relevant chunks"""
     if not model or "embeddings" not in st.session_state or not st.session_state.embeddings:
         return ""
@@ -118,7 +119,12 @@ def generate_response(message: str) -> str:
         return "⚠️ API key not configured."
     
     try:
-        context = retrieve_relevant_context(message)
+       # Expand query with synonyms for better retrieval
+        expanded_query = message
+        if "carbon footprint" in message.lower() or "gwp" in message.lower():
+            expanded_query = f"{message} global warming potential CO2 emissions kg ADt ton"
+        
+        context = retrieve_relevant_context(expanded_query, top_k=5)
         
         if context:
             augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
@@ -131,10 +137,9 @@ Question: {message}
 
 Instructions:
 - Provide a clear, accurate answer using the SAFI knowledge above
-- When referencing information, say "According to SAFI knowledge" or "Based on SAFI research"
+- When referencing information, say "Based on SAFI research"
 - Understand that "carbon footprint" and "global warming potential (GWP)" are the same metric
-- When reporting GWP/carbon footprint values, use ONLY the baseline results (e.g., 576 kg CO₂-eq/ton for average BEK)
-- Do NOT include sensitivity analysis results (GWPbio or SOC sequestration adjustments) unless the question specifically asks about "sensitivity analysis", "GWPbio", or "SOC sequestration"
+- When reporting GWP/carbon footprint values, use in most cases the baseline results 
 - If the SAFI knowledge doesn't contain enough information, clearly state that and provide general knowledge while noting it's not from SAFI papers
 - Do not use phrases like "research context" or "provided context"
 
@@ -150,6 +155,7 @@ Answer:"""
         return response.text
     except Exception as e:
         return f"Error: {str(e)}"
+        
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
