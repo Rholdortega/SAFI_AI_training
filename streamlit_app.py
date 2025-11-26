@@ -259,11 +259,3 @@ if prompt := st.chat_input("Ask about SAFI research..."):
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.rerun()
 ```
-
-## **Your complete file structure should be:**
-```
-Chatbot_data/
-├── app.py                    ← Paste the code above
-├── requirements.txt          ← Already created
-└── data/
-    └── Rhonald-1.pdf        ← Already added
