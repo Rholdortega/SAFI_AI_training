@@ -132,6 +132,9 @@ Question: {message}
 Instructions:
 - Provide a clear, accurate answer using the SAFI knowledge above
 - When referencing information, say "According to SAFI knowledge" or "Based on SAFI research"
+- Understand that "carbon footprint" and "global warming potential (GWP)" are the same metric
+- When reporting GWP/carbon footprint values, use ONLY the baseline results (e.g., 576 kg CO₂-eq/ton for average BEK)
+- Do NOT include sensitivity analysis results (GWPbio or SOC sequestration adjustments) unless the question specifically asks about "sensitivity analysis", "GWPbio", or "SOC sequestration"
 - If the SAFI knowledge doesn't contain enough information, clearly state that and provide general knowledge while noting it's not from SAFI papers
 - Do not use phrases like "research context" or "provided context"
 
@@ -147,7 +150,6 @@ Answer:"""
         return response.text
     except Exception as e:
         return f"Error: {str(e)}"
-
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
