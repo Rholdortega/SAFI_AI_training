@@ -135,17 +135,28 @@ SAFI Knowledge:
 
 Question: {message}
 
+augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
+Answer the question accurately and concisely using the SAFI knowledge provided below.
+
+SAFI Knowledge:
+{context}
+
+Question: {message}
+
 Instructions:
-- Provide a clear, accurate answer using the SAFI knowledge above
-- When referencing information, say "Based on SAFI research"
-- Understand that "carbon footprint" and "global warming potential (GWP)" are the same metric
-- When reporting GWP/carbon footprint values, use in most cases the baseline results 
-- If the SAFI knowledge doesn't contain enough information, clearly state that and provide general knowledge while noting it's not from SAFI papers
-- Do not use phrases like "research context" or "provided context"
+- Search the SAFI knowledge carefully for SPECIFIC NUMERICAL VALUES
+- Look for patterns like "XXX kg CO₂-eq/ton" or "XXX kg CO₂-eq/ADt"
+- Look for phrases like "average GWP", "average BEK model", "576", "632", "583", "563"
+- The answer should include the actual number from the research
+- When reporting GWP/carbon footprint, ALWAYS include the specific value with units
+- Use ONLY baseline results (exclude sensitivity analysis unless asked)
+- If you find a specific GWP value in the knowledge above, state it clearly
+- If no specific value is found, say so explicitly
 
 Answer:"""
         else:
-            augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
+            augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
+            Answer the question accurately and concisely using the SAFI knowledge provided below.
 
 Question: {message}
 
