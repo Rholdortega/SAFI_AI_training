@@ -124,7 +124,7 @@ def generate_response(message: str) -> str:
             augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
 Based on the following research context from SAFI papers, answer the question accurately and concisely.
 
-Research Context:
+SAFI Knowledge:
 {context}
 
 Question: {message}
