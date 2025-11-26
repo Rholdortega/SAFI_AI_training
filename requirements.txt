@@ -1,2 +1,5 @@
-streamlit>=1.28.0
-google-generativeai>=0.3.0
+google-generativeai
+streamlit
+numpy
+pypdf2
+requests
