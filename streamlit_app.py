@@ -144,7 +144,6 @@ Instructions:
 - Use ONLY baseline results (exclude sensitivity analysis unless asked)
 - If you find a specific GWP value in the knowledge above, state it clearly
 - When asked "What is the carbon footprint of BEK in Brazil?", answer the average BEK value of 576 kg CO₂-eq/ton delivered to the U.S.
-- If no specific value is found, say so explicitly
 
 Answer:"""
         else:
