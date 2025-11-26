@@ -258,4 +258,3 @@ if prompt := st.chat_input("Ask about SAFI research..."):
     st.markdown(f"✨ {response}")
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.rerun()
-```
