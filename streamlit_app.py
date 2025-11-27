@@ -12,12 +12,12 @@ import time
 import os
 import pickle
 
-# Page config - Force sidebar open
+# Page config
 st.set_page_config(
     page_title="SAFI Research Intelligence",
     page_icon="🎍",
     layout="centered",
-    initial_sidebar_state="expanded"  # Forces sidebar to show
+    initial_sidebar_state="expanded"
 )
 
 # Custom CSS
@@ -244,26 +244,23 @@ if not st.session_state.initialized and model:
         except Exception as e:
             st.error(f"Error loading embeddings: {str(e)}")
 
-# ============ SIDEBAR - ALWAYS VISIBLE ============
+# ============ SIDEBAR ============
 with st.sidebar:
-    st.title("🎍 SAFI RI")
-    st.caption("Research Intelligence")
+    st.markdown("### SAFI Research Intelligence")
     
     st.divider()
     
-    # CLEAR CHAT BUTTON - PROMINENT
-    if st.button("🗑️ Clear Chat", use_container_width=True, type="primary"):
+    # CLEAR CHAT BUTTON - NOT RED (removed type="primary")
+    if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
     
     st.divider()
     
-    # Stats
+    # Stats - ONLY show number of papers (no chunks)
     if st.session_state.initialized:
         unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
-        
         st.metric("Research Papers", unique_papers)
-        st.metric("Knowledge Chunks", f"{len(st.session_state.knowledge_base):,}")
     
     st.divider()
     
@@ -273,12 +270,13 @@ with st.sidebar:
 
 # ============ MAIN CONTENT ============
 
-# Header (only when empty)
+# Header with centered icon (only when empty)
 if len(st.session_state.messages) == 0:
     st.markdown("""
         <div class="main-header">
+            <div style='font-size: 4rem; margin-bottom: 1rem;'>🎍</div>
             <h1 style='font-size: 2.5rem; margin: 0; font-weight: 400;'>
-                🎍 SAFI Research Intelligence
+                SAFI Research Intelligence
             </h1>
             <p style='color: #666; font-size: 1rem; margin-top: 0.5rem;'>
                 Ask questions about SAFI research
@@ -286,7 +284,7 @@ if len(st.session_state.messages) == 0:
         </div>
     """, unsafe_allow_html=True)
 
-# Display messages WITHOUT AVATARS using custom styling
+# Display messages WITHOUT AVATARS
 for msg in st.session_state.messages:
     if msg["role"] == "user":
         st.markdown(f"""
