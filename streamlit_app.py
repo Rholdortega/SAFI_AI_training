@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Clean UI
+SAFI Research Intelligence - Clean UI with Green Theme
 """
 import streamlit as st
 import google.generativeai as genai
@@ -20,9 +20,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS with GREEN theme
 st.markdown("""
     <style>
+    /* Main background - soft green like Claude's beige */
+    .main {
+        background-color: #f0f5f0;
+    }
+    
+    /* Sidebar background - slightly darker green */
+    [data-testid="stSidebar"] {
+        background-color: #e8f0e8;
+    }
+    
     /* Limit chat width */
     .main .block-container {
         max-width: 48rem;
@@ -41,31 +51,36 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* User message styling - NO AVATARS */
+    /* User message styling - light green */
     .user-message {
-        background-color: #f0f0f0;
+        background-color: #e3f0e3;
         padding: 1rem;
         border-radius: 10px;
         margin: 1rem 0;
         margin-left: 20%;
     }
     
-    /* Assistant message styling - NO AVATARS */
+    /* Assistant message styling - white with subtle green border */
     .assistant-message {
         background-color: #ffffff;
         padding: 1rem;
         border-radius: 10px;
         margin: 1rem 0;
         margin-right: 20%;
-        border: 1px solid #e0e0e0;
+        border: 1px solid #d0e0d0;
     }
     
     /* Message labels */
     .message-label {
         font-size: 0.75rem;
-        color: #666;
+        color: #4a6b4a;
         margin-bottom: 0.5rem;
         font-weight: 600;
+    }
+    
+    /* Chat input background */
+    .stChatInputContainer {
+        background-color: #f0f5f0;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -250,14 +265,14 @@ with st.sidebar:
     
     st.divider()
     
-    # CLEAR CHAT BUTTON - NOT RED (removed type="primary")
+    # CLEAR CHAT BUTTON
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
     
     st.divider()
     
-    # Stats - ONLY show number of papers (no chunks)
+    # Stats
     if st.session_state.initialized:
         unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
         st.metric("Research Papers", unique_papers)
@@ -278,7 +293,7 @@ if len(st.session_state.messages) == 0:
             <h1 style='font-size: 2.5rem; margin: 0; font-weight: 400;'>
                 SAFI Research Intelligence
             </h1>
-            <p style='color: #666; font-size: 1rem; margin-top: 0.5rem;'>
+            <p style='color: #4a6b4a; font-size: 1rem; margin-top: 0.5rem;'>
                 Ask questions about SAFI research
             </p>
         </div>
