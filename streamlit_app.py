@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Clean UI
+SAFI Research Intelligence - Clean UI with Collapsible Sidebar
 """
 import streamlit as st
 import google.generativeai as genai
@@ -17,7 +17,7 @@ st.set_page_config(
     page_title="SAFI Research Intelligence",
     page_icon="🎍",
     layout="centered",
-    initial_sidebar_state="auto"  # Changed to auto so sidebar is visible
+    initial_sidebar_state="expanded"  # Sidebar visible by default, but can collapse
 )
 
 # Custom CSS for clean design
@@ -41,6 +41,11 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background-color: #f7f7f8;
+    }
     
     /* Chat input styling */
     .stChatInputContainer {
@@ -230,28 +235,110 @@ if not st.session_state.initialized and model:
         except Exception as e:
             st.error(f"Error loading embeddings: {str(e)}")
 
-# Sidebar
+# SIDEBAR - Collapsible from the left
 with st.sidebar:
-    st.markdown("### 🎍 SAFI Research Intelligence")
-    
-    if st.session_state.initialized:
-        unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
-        st.caption(f"📚 {unique_papers} research papers")
+    # Logo/Title at top
+    st.markdown("## 🎍 SAFI RI")
+    st.caption("Research Intelligence")
     
     st.markdown("---")
     
-    # Clear chat button - prominently displayed
-    if st.button("🗑️ Clear chat", use_container_width=True, type="primary"):
+    # Main action - Clear Chat
+    if st.button("🗑️ Clear chat", use_container_width=True, key="clear_main"):
         st.session_state.messages = []
         st.rerun()
     
     st.markdown("---")
     
+    # Knowledge base info
+    if st.session_state.initialized:
+        st.markdown("### 📊 Knowledge Base")
+        unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Papers", unique_papers)
+        with col2:
+            st.metric("Chunks", f"{len(st.session_state.knowledge_base):,}")
+    
+    st.markdown("---")
+    
+    # Additional options in expander
+    with st.expander("⚙️ Options"):
+        st.markdown("**Add Papers**")
+        
+        # PDF Upload
+        uploaded_files = st.file_uploader(
+            "Upload PDFs",
+            type=['pdf'],
+            accept_multiple_files=True,
+            label_visibility="collapsed"
+        )
+        
+        if uploaded_files and st.button("Process PDFs", key="process_btn"):
+            with st.spinner("Processing..."):
+                for pdf_file in uploaded_files:
+                    text = extract_text_from_pdf(pdf_file)
+                    chunks = chunk_text(text)
+                    
+                    st.session_state.knowledge_base.extend(chunks)
+                    
+                    for chunk in chunks:
+                        embedding = genai.embed_content(
+                            model=embedding_model,
+                            content=chunk,
+                            task_type="retrieval_document"
+                        )["embedding"]
+                        st.session_state.embeddings.append(embedding)
+                        st.session_state.chunk_metadata.append({
+                            "source": f"Uploaded: {pdf_file.name}",
+                            "file": pdf_file.name
+                        })
+                        time.sleep(0.5)
+                
+                st.success(f"✅ Added {len(uploaded_files)} papers")
+                st.rerun()
+        
+        st.markdown("---")
+        st.markdown("**Add by DOI**")
+        doi_input = st.text_input("DOI", placeholder="10.xxxx/xxxxx", label_visibility="collapsed")
+        
+        if doi_input and st.button("Fetch DOI", key="doi_btn"):
+            with st.spinner("Fetching..."):
+                text = fetch_pdf_from_doi(doi_input)
+                if "Error" not in text and "Could not" not in text:
+                    chunks = chunk_text(text)
+                    st.session_state.knowledge_base.extend(chunks)
+                    
+                    for chunk in chunks:
+                        embedding = genai.embed_content(
+                            model=embedding_model,
+                            content=chunk,
+                            task_type="retrieval_document"
+                        )["embedding"]
+                        st.session_state.embeddings.append(embedding)
+                        st.session_state.chunk_metadata.append({
+                            "source": f"DOI: {doi_input}",
+                            "file": doi_input
+                        })
+                        time.sleep(0.5)
+                    
+                    st.success("✅ Added paper")
+                    st.rerun()
+                else:
+                    st.error(text)
+    
+    # About section
     with st.expander("ℹ️ About"):
         st.markdown("""
-        Ask questions about SAFI research on sustainable fibers, biomaterials, and life cycle assessment.
+        **SAFI Research Intelligence** provides AI-powered access to peer-reviewed research on:
         
-        Powered by AI with peer-reviewed publications from the SAFI consortium.
+        - Sustainable fibers
+        - Life cycle assessment
+        - Carbon footprint analysis
+        - Biomaterials
+        
+        Built for the SAFI consortium.
         """)
 
 # Main content - Clean header (only when empty)
@@ -269,18 +356,18 @@ if len(st.session_state.messages) == 0:
 
 # Display chat messages WITHOUT avatars
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):  # No avatar parameter
+    with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 # Chat input
 if prompt := st.chat_input("Ask about SAFI research..."):
     # Add user message
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):  # No avatar
+    with st.chat_message("user"):
         st.markdown(prompt)
     
     # Generate response
-    with st.chat_message("assistant"):  # No avatar
+    with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             response = generate_response(prompt)
         st.markdown(response)
