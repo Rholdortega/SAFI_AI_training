@@ -9,7 +9,7 @@ import PyPDF2
 import requests
 import time
 from io import BytesIO
-
+import pickle
 # Page config
 st.set_page_config(
     page_title="SAFI Chatbot",
@@ -167,29 +167,34 @@ if "embeddings" not in st.session_state:
 if "initialized" not in st.session_state:
     st.session_state.initialized = False
 
-# Load pre-existing paper on first run
+# Load pre-computed embeddings
 if not st.session_state.initialized and model:
     with st.spinner("Loading SAFI knowledge base..."):
         try:
-            # Path to your uploaded PDF
-            pdf_path = "data/Rhonald-1.pdf"
-            with open(pdf_path, 'rb') as f:
-                text = extract_text_from_pdf(f)
-                chunks = chunk_text(text)
+            import pickle
+            import os
+            
+            # Load pre-computed embeddings
+            embeddings_file = "safi_embeddings.pkl"
+            
+            if os.path.exists(embeddings_file):
+                with open(embeddings_file, 'rb') as f:
+                    data = pickle.load(f)
                 
-                st.session_state.knowledge_base.extend(chunks)
+                st.session_state.knowledge_base = data["knowledge_base"]
+                st.session_state.embeddings = data["embeddings"]
+                st.session_state.chunk_metadata = data["chunk_metadata"]
                 
-                for chunk in chunks:
-                    embedding = genai.embed_content(
-                        model=embedding_model,
-                        content=chunk,
-                        task_type="retrieval_document"
-                    )["embedding"]
-                    st.session_state.embeddings.append(embedding)
+                # Count unique papers
+                unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
                 
                 st.session_state.initialized = True
+                st.success(f"✅ Loaded {unique_papers} papers with {len(st.session_state.knowledge_base)} chunks")
+            else:
+                st.error(f"Embeddings file not found: {embeddings_file}")
+                
         except Exception as e:
-            st.error(f"Error loading initial paper: {str(e)}")
+            st.error(f"Error loading embeddings: {str(e)}")
 
 # Sidebar for document management
 with st.sidebar:
