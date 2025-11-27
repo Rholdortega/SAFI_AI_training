@@ -232,7 +232,7 @@ if not st.session_state.initialized and model:
 
 # Minimal sidebar - only essential info
 with st.sidebar:
-    st.markdown("### 🎍 SAFI Research Assistant")
+    st.markdown("### 🎍 SAFI Research Intelligence")
     
     if st.session_state.initialized:
         unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
