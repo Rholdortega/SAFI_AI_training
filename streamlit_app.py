@@ -1,5 +1,5 @@
 """
-SAFI Chatbot - Clean Claude-style UI
+SAFI Research Intelligence - Clean UI
 """
 import streamlit as st
 import google.generativeai as genai
@@ -16,14 +16,14 @@ import pickle
 st.set_page_config(
     page_title="SAFI Research Intelligence",
     page_icon="🎍",
-    layout="centered",  # Changed from "wide" to "centered" like Claude
-    initial_sidebar_state="collapsed"
+    layout="centered",
+    initial_sidebar_state="auto"  # Changed to auto so sidebar is visible
 )
 
-# Custom CSS for Claude-like design
+# Custom CSS for clean design
 st.markdown("""
     <style>
-    /* Limit chat width like Claude */
+    /* Limit chat width */
     .main .block-container {
         max-width: 48rem;
         padding-top: 2rem;
@@ -230,7 +230,7 @@ if not st.session_state.initialized and model:
         except Exception as e:
             st.error(f"Error loading embeddings: {str(e)}")
 
-# Minimal sidebar - only essential info
+# Sidebar
 with st.sidebar:
     st.markdown("### 🎍 SAFI Research Intelligence")
     
@@ -240,13 +240,16 @@ with st.sidebar:
     
     st.markdown("---")
     
-    if st.button("Clear chat", use_container_width=True):
+    # Clear chat button - prominently displayed
+    if st.button("🗑️ Clear chat", use_container_width=True, type="primary"):
         st.session_state.messages = []
         st.rerun()
     
-    with st.expander("About"):
+    st.markdown("---")
+    
+    with st.expander("ℹ️ About"):
         st.markdown("""
-        Ask questions about SAFI research.
+        Ask questions about SAFI research on sustainable fibers, biomaterials, and life cycle assessment.
         
         Powered by AI with peer-reviewed publications from the SAFI consortium.
         """)
@@ -264,20 +267,20 @@ if len(st.session_state.messages) == 0:
         </div>
     """, unsafe_allow_html=True)
 
-# Display chat messages
+# Display chat messages WITHOUT avatars
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    with st.chat_message(msg["role"]):  # No avatar parameter
         st.markdown(msg["content"])
 
 # Chat input
 if prompt := st.chat_input("Ask about SAFI research..."):
     # Add user message
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
+    with st.chat_message("user"):  # No avatar
         st.markdown(prompt)
     
     # Generate response
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant"):  # No avatar
         with st.spinner("Thinking..."):
             response = generate_response(prompt)
         st.markdown(response)
