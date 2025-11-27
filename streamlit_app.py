@@ -1,5 +1,5 @@
 """
-SAFI Chatbot with RAG - Modern UI Design
+SAFI Chatbot - Clean Claude-style UI
 """
 import streamlit as st
 import google.generativeai as genai
@@ -12,62 +12,44 @@ import time
 import os
 import pickle
 
-# Page config with modern styling
+# Page config
 st.set_page_config(
     page_title="SAFI Research Assistant",
     page_icon="🎍",
-    layout="wide",
-    initial_sidebar_state="collapsed"  # Start with sidebar collapsed for cleaner look
+    layout="centered",  # Changed from "wide" to "centered" like Claude
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for modern design
+# Custom CSS for Claude-like design
 st.markdown("""
     <style>
-    /* Main chat container */
-    .main {
-        background-color: #ffffff;
+    /* Limit chat width like Claude */
+    .main .block-container {
+        max-width: 48rem;
+        padding-top: 2rem;
+        padding-bottom: 2rem;
     }
     
-    /* Header styling */
+    /* Clean header */
     .main-header {
         text-align: center;
-        padding: 2rem 0 1rem 0;
-        border-bottom: 1px solid #e0e0e0;
+        padding: 3rem 0 2rem 0;
         margin-bottom: 2rem;
     }
     
-    /* Chat message styling */
-    .stChatMessage {
-        background-color: #f8f9fa;
-        border-radius: 12px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-    }
-    
-    /* Sidebar styling */
-    .css-1d391kg {
-        background-color: #f8f9fa;
-    }
-    
-    /* Hide Streamlit branding */
+    /* Hide Streamlit elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    header {visibility: hidden;}
     
-    /* Suggestion chips */
-    .suggestion-chip {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        margin: 0.25rem;
-        background-color: #e8f4f8;
-        border: 1px solid #b8dae8;
-        border-radius: 20px;
-        cursor: pointer;
-        transition: all 0.2s;
+    /* Chat input styling */
+    .stChatInputContainer {
+        padding-top: 1rem;
     }
     
-    .suggestion-chip:hover {
-        background-color: #d0e8f2;
-        border-color: #8bb8d8;
+    /* Message spacing */
+    .stChatMessage {
+        margin-bottom: 1.5rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -99,7 +81,7 @@ def extract_text_from_pdf(pdf_file) -> str:
         return f"Error extracting PDF: {str(e)}"
 
 def fetch_pdf_from_doi(doi: str) -> str:
-    """Attempt to fetch PDF from DOI (works for open access papers)"""
+    """Attempt to fetch PDF from DOI"""
     try:
         unpaywall_url = f"https://api.unpaywall.org/v2/{doi}?email=research@safi.edu"
         response = requests.get(unpaywall_url, timeout=10)
@@ -229,9 +211,8 @@ if "initialized" not in st.session_state:
 
 # Load pre-computed embeddings
 if not st.session_state.initialized and model:
-    with st.spinner("🎍 Loading SAFI knowledge base..."):
+    with st.spinner("Loading SAFI knowledge base..."):
         try:
-            # Load pre-computed embeddings
             embeddings_file = "safi_embeddings.pkl"
             
             if os.path.exists(embeddings_file):
@@ -249,156 +230,54 @@ if not st.session_state.initialized and model:
         except Exception as e:
             st.error(f"Error loading embeddings: {str(e)}")
 
-# Sidebar with modern design
+# Minimal sidebar - only essential info
 with st.sidebar:
     st.markdown("### 🎍 SAFI Research Assistant")
-    st.markdown("---")
     
-    # Knowledge base stats
     if st.session_state.initialized:
         unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Papers", unique_papers, help="Research papers in knowledge base")
-        with col2:
-            st.metric("Chunks", len(st.session_state.knowledge_base), help="Searchable text segments")
-        
-        st.markdown("---")
-    
-    # Expander for upload features (collapsed by default for cleaner UI)
-    with st.expander("➕ Add More Papers", expanded=False):
-        # PDF Upload
-        uploaded_files = st.file_uploader(
-            "Upload PDFs",
-            type=['pdf'],
-            accept_multiple_files=True,
-            help="Add additional research papers to the knowledge base"
-        )
-        
-        if uploaded_files and st.button("Process", key="process_pdfs"):
-            with st.spinner("Processing..."):
-                for pdf_file in uploaded_files:
-                    text = extract_text_from_pdf(pdf_file)
-                    chunks = chunk_text(text)
-                    
-                    st.session_state.knowledge_base.extend(chunks)
-                    
-                    for chunk in chunks:
-                        embedding = genai.embed_content(
-                            model=embedding_model,
-                            content=chunk,
-                            task_type="retrieval_document"
-                        )["embedding"]
-                        st.session_state.embeddings.append(embedding)
-                        st.session_state.chunk_metadata.append({
-                            "source": f"Uploaded: {pdf_file.name}",
-                            "file": pdf_file.name
-                        })
-                        time.sleep(0.5)
-                
-                st.success(f"✅ Added {len(uploaded_files)} papers")
-        
-        st.markdown("**Or add by DOI:**")
-        doi_input = st.text_input("Enter DOI", placeholder="10.1016/j.cesys.2024.100234")
-        
-        if doi_input and st.button("Fetch", key="fetch_doi"):
-            with st.spinner(f"Fetching..."):
-                text = fetch_pdf_from_doi(doi_input)
-                if "Error" not in text and "Could not" not in text:
-                    chunks = chunk_text(text)
-                    st.session_state.knowledge_base.extend(chunks)
-                    
-                    for chunk in chunks:
-                        embedding = genai.embed_content(
-                            model=embedding_model,
-                            content=chunk,
-                            task_type="retrieval_document"
-                        )["embedding"]
-                        st.session_state.embeddings.append(embedding)
-                        st.session_state.chunk_metadata.append({
-                            "source": f"DOI: {doi_input}",
-                            "file": doi_input
-                        })
-                        time.sleep(0.5)
-                    
-                    st.success("✅ Added paper from DOI")
-                else:
-                    st.error(text)
+        st.caption(f"📚 {unique_papers} research papers")
     
     st.markdown("---")
     
-    # Actions
-    if st.button("🗑️ Clear Chat", use_container_width=True):
+    if st.button("Clear chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
     
-    # About section
-    with st.expander("ℹ️ About", expanded=False):
+    with st.expander("About"):
         st.markdown("""
-        **SAFI Research Assistant** provides instant access to peer-reviewed research on:
+        Ask questions about SAFI research on sustainable fibers, biomaterials, and life cycle assessment.
         
-        - Sustainable fibers & biomaterials
-        - Life cycle assessment (LCA)
-        - Carbon footprint analysis
-        - Pulp & paper production
-        - Soil organic carbon sequestration
-        
-        Powered by AI with 17 research papers from the SAFI consortium.
+        Powered by AI with peer-reviewed publications from the SAFI consortium.
         """)
 
-# Main content area
-# Modern header (only show if no messages yet)
+# Main content - Clean header (only when empty)
 if len(st.session_state.messages) == 0:
     st.markdown("""
         <div class="main-header">
-            <h1 style='font-size: 2.5rem; margin-bottom: 0.5rem;'>
+            <h1 style='font-size: 2.5rem; margin: 0; font-weight: 400;'>
                 🎍 SAFI Research Assistant
             </h1>
-            <p style='color: #666; font-size: 1.1rem;'>
-                Ask questions about sustainable fibers, LCA, and biomaterials research
+            <p style='color: #666; font-size: 1rem; margin-top: 0.5rem;'>
+                Ask questions about SAFI research
             </p>
         </div>
     """, unsafe_allow_html=True)
-    
-    # Example questions as clickable chips
-    st.markdown("### 💡 Try asking:")
-    
-    col1, col2 = st.columns(2)
-    
-    example_questions = [
-        "What is the carbon footprint of BEK in Brazil?",
-        "What are the three bleaching sequences studied?",
-        "How does SOC sequestration affect GWP?",
-        "Which bleaching sequence has the lowest impact?",
-        "What papers are in the knowledge base?",
-        "Explain oxygen delignification in pulp production"
-    ]
-    
-    for i, question in enumerate(example_questions):
-        col = col1 if i % 2 == 0 else col2
-        with col:
-            if st.button(f"💬 {question}", key=f"example_{i}", use_container_width=True):
-                st.session_state.messages.append({"role": "user", "content": question})
-                with st.spinner("Thinking..."):
-                    response = generate_response(question)
-                st.session_state.messages.append({"role": "assistant", "content": response})
-                st.rerun()
 
-# Display chat messages with modern styling
+# Display chat messages
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"], avatar="🎍" if msg["role"] == "assistant" else "👤"):
+    with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Chat input (modern, at bottom)
-if prompt := st.chat_input("Ask about SAFI research...", key="chat_input"):
+# Chat input
+if prompt := st.chat_input("Ask about SAFI research..."):
     # Add user message
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user", avatar="👤"):
+    with st.chat_message("user"):
         st.markdown(prompt)
     
-    # Generate and display assistant response
-    with st.chat_message("assistant", avatar="🎍"):
+    # Generate response
+    with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             response = generate_response(prompt)
         st.markdown(response)
