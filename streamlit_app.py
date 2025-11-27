@@ -14,7 +14,7 @@ import pickle
 
 # Page config
 st.set_page_config(
-    page_title="SAFI Research Assistant",
+    page_title="SAFI Research Intelligence",
     page_icon="🎍",
     layout="centered",  # Changed from "wide" to "centered" like Claude
     initial_sidebar_state="collapsed"
@@ -246,7 +246,7 @@ with st.sidebar:
     
     with st.expander("About"):
         st.markdown("""
-        Ask questions about SAFI research on sustainable fibers, biomaterials, and life cycle assessment.
+        Ask questions about SAFI research.
         
         Powered by AI with peer-reviewed publications from the SAFI consortium.
         """)
@@ -256,7 +256,7 @@ if len(st.session_state.messages) == 0:
     st.markdown("""
         <div class="main-header">
             <h1 style='font-size: 2.5rem; margin: 0; font-weight: 400;'>
-                🎍 SAFI Research Assistant
+                🎍 SAFI Research Intelligence
             </h1>
             <p style='color: #666; font-size: 1rem; margin-top: 0.5rem;'>
                 Ask questions about SAFI research
