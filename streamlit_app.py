@@ -152,7 +152,7 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     b = np.array(b)
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def retrieve_relevant_context(query: str, top_k: int = 5) -> tuple:
+def retrieve_relevant_context(query: str, top_k: int = 8) -> tuple:
     """Retrieve most relevant chunks with metadata"""
     if not model or "embeddings" not in st.session_state or not st.session_state.embeddings:
         return "", []
@@ -175,47 +175,52 @@ def retrieve_relevant_context(query: str, top_k: int = 5) -> tuple:
     context = "\n\n".join(relevant_chunks)
     return context, chunk_sources
 
+
 def generate_response(message: str) -> str:
     """Generate response with RAG"""
     if not model:
         return "⚠️ API key not configured."
     
     try:
-        expanded_query = message
-        if "carbon footprint" in message.lower() or "gwp" in message.lower():
-            expanded_query = f"{message} global warming potential CO2 emissions kg ADt ton 576"
-        if "bek" in message.lower() and "brazil" in message.lower():
-            expanded_query = f"{message} Ortega bleached eucalyptus kraft Brazilian"
-        
-        context, sources = retrieve_relevant_context(expanded_query, top_k=5)
+        # Retrieve relevant context (increased top_k for better coverage)
+        context, sources = retrieve_relevant_context(message, top_k=8)
         
         if context:
-            source_info = "\n".join([f"- {s['source']}" for s in sources])
+            # Deduplicate sources while preserving order
+            seen = set()
+            unique_sources = []
+            for s in sources:
+                if s['source'] not in seen:
+                    seen.add(s['source'])
+                    unique_sources.append(s)
             
-            augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI). 
-Answer the question accurately and concisely using the SAFI knowledge provided below.
+            source_info = "\n".join([f"- {s['source']}" for s in unique_sources])
+            
+            augmented_prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
 
-SAFI Knowledge from:
+Answer the question using the retrieved SAFI research content below. Be accurate and base your response on the evidence provided.
+
+Retrieved from:
 {source_info}
 
+
 {context}
+
 
 Question: {message}
 
 Instructions:
-- Search the SAFI knowledge carefully for SPECIFIC NUMERICAL VALUES
-- Look for patterns like "XXX kg CO₂-eq/ton" or "XXX kg CO₂-eq/ADt"
-- When reporting GWP/carbon footprint, ALWAYS include the specific value with units
-- Use ONLY baseline results (exclude sensitivity analysis unless asked)
-- When asked "What is the carbon footprint of BEK in Brazil?", the answer is 576 kg CO₂-eq/ton for average BEK delivered to the U.S.
-- The three bleaching sequences have GWP values: D0-Eop-D1-P (632), O/O-D0-Eop-D1-P (583), O/O-A-D0-Eop-D1-P (563 kg CO₂-eq/ton)
-- When referencing information, say "According to SAFI research" or "Based on SAFI knowledge"
-- Understand that "carbon footprint" and "global warming potential (GWP)" are the same metric
-- Provide concise, direct answers
+- Answer based on the retrieved content above
+- Include specific numerical values with units when available
+- If the retrieved content doesn't fully address the question, acknowledge this
+- Cite the source when referencing specific findings (e.g., "According to [Author et al.]...")
+- For terms like "carbon footprint," "GWP," and "global warming potential," treat them as equivalent metrics
 
 Answer:"""
         else:
-            augmented_prompt = f"""You are a knowledgeable assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
+            augmented_prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
+
+No relevant documents were retrieved for this question. Please let the user know and offer to help if they can rephrase or clarify.
 
 Question: {message}
 
@@ -223,6 +228,7 @@ Answer:"""
         
         response = model.generate_content(augmented_prompt)
         return response.text
+    
     except Exception as e:
         return f"Error: {str(e)}"
 
