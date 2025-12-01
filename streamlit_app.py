@@ -94,7 +94,7 @@ except:
 # Configure Gemini
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     embedding_model = "models/text-embedding-004"
 else:
     model = None
