@@ -346,7 +346,6 @@ if not st.session_state.initialized and model:
 # ============ SIDEBAR ============
 with st.sidebar:
     st.markdown("### SAFI Research Intelligence")
-    st.caption("Hybrid Mode")
     
     st.divider()
     
@@ -358,7 +357,6 @@ with st.sidebar:
     
     if st.session_state.initialized:
         st.metric("Papers", len(st.session_state.paper_names))
-        st.metric("Chunks", len(st.session_state.chunks))
         
         with st.expander("📄 Papers"):
             for name in st.session_state.paper_names:
@@ -380,7 +378,7 @@ if len(st.session_state.messages) == 0:
                 SAFI Research Intelligence
             </h1>
             <p style='color: #4a6b4a; font-size: 1rem; margin-top: 0.5rem;'>
-                Hybrid Mode — Summaries + Detailed Retrieval
+                Ask about SAFI research
             </p>
         </div>
     """, unsafe_allow_html=True)
