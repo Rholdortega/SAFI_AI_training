@@ -1,16 +1,13 @@
 """
-SAFI Research Intelligence - Clean UI with Green Theme
+SAFI Research Intelligence - Full Context Version
+Loads all papers directly into Gemini's context window (no RAG)
 """
 import streamlit as st
 import google.generativeai as genai
 from typing import List, Tuple
-import numpy as np
-import PyPDF2
-import requests
-from io import BytesIO
-import time
 import os
 import pickle
+import glob
 
 # Page config
 st.set_page_config(
@@ -23,35 +20,29 @@ st.set_page_config(
 # Custom CSS with GREEN theme
 st.markdown("""
     <style>
-    /* Main background - soft green like Claude's beige */
     .main {
         background-color: #f0f5f0;
     }
     
-    /* Sidebar background - slightly darker green */
     [data-testid="stSidebar"] {
         background-color: #e8f0e8;
     }
     
-    /* Limit chat width */
     .main .block-container {
         max-width: 48rem;
         padding-top: 2rem;
         padding-bottom: 2rem;
     }
     
-    /* Clean header */
     .main-header {
         text-align: center;
         padding: 3rem 0 2rem 0;
         margin-bottom: 2rem;
     }
     
-    /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* User message styling - light green */
     .user-message {
         background-color: #e3f0e3;
         padding: 1rem;
@@ -60,7 +51,6 @@ st.markdown("""
         margin-left: 20%;
     }
     
-    /* Assistant message styling - white with subtle green border */
     .assistant-message {
         background-color: #ffffff;
         padding: 1rem;
@@ -70,7 +60,6 @@ st.markdown("""
         border: 1px solid #d0e0d0;
     }
     
-    /* Message labels */
     .message-label {
         font-size: 0.75rem;
         color: #4a6b4a;
@@ -78,17 +67,15 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Chat input background */
     .stChatInputContainer {
         background-color: #f0f5f0;
     }
     
-    /* Source citation styling */
-    .sources-box {
+    .stats-box {
         background-color: #f8faf8;
         border-left: 3px solid #4a6b4a;
         padding: 0.5rem 1rem;
-        margin-top: 1rem;
+        margin-top: 0.5rem;
         font-size: 0.85rem;
         color: #5a7a5a;
     }
@@ -105,208 +92,143 @@ except:
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel("gemini-2.5-flash")
-    embedding_model = "models/text-embedding-004"
 else:
     model = None
-    embedding_model = None
-
-def extract_text_from_pdf(pdf_file) -> str:
-    """Extract text from uploaded PDF file"""
-    try:
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-        return text
-    except Exception as e:
-        return f"Error extracting PDF: {str(e)}"
-
-def fetch_pdf_from_doi(doi: str) -> str:
-    """Attempt to fetch PDF from DOI"""
-    try:
-        unpaywall_url = f"https://api.unpaywall.org/v2/{doi}?email=research@safi.edu"
-        response = requests.get(unpaywall_url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('is_oa') and data.get('best_oa_location'):
-                pdf_url = data['best_oa_location'].get('url_for_pdf')
-                if pdf_url:
-                    pdf_response = requests.get(pdf_url, timeout=30)
-                    if pdf_response.status_code == 200:
-                        pdf_file = BytesIO(pdf_response.content)
-                        return extract_text_from_pdf(pdf_file)
-        
-        return f"Could not access open PDF for DOI: {doi}"
-    except Exception as e:
-        return f"Error fetching DOI: {str(e)}"
-
-def chunk_text(text: str, chunk_size: int = 1500, overlap: int = 300) -> List[str]:
-    """Split text into overlapping chunks"""
-    chunks = []
-    start = 0
-    text_length = len(text)
-    
-    while start < text_length:
-        end = start + chunk_size
-        chunk = text[start:end]
-        if chunk.strip():
-            chunks.append(chunk)
-        start += chunk_size - overlap
-    
-    return chunks
-
-def cosine_similarity(a: List[float], b: List[float]) -> float:
-    """Calculate cosine similarity"""
-    a = np.array(a)
-    b = np.array(b)
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-def retrieve_relevant_context(query: str, top_k: int = 8, min_similarity: float = 0.3) -> Tuple[str, List[dict], List[float]]:
-    """Retrieve most relevant chunks with metadata and similarity scores"""
-    if not model or "embeddings" not in st.session_state or not st.session_state.embeddings:
-        return "", [], []
-    
-    query_embedding = genai.embed_content(
-        model=embedding_model,
-        content=query,
-        task_type="retrieval_query"
-    )["embedding"]
-    
-    similarities = [
-        cosine_similarity(query_embedding, doc_emb)
-        for doc_emb in st.session_state.embeddings
-    ]
-    
-    # Get top indices sorted by similarity
-    top_indices = np.argsort(similarities)[-top_k:][::-1]
-    
-    # Filter by minimum similarity threshold
-    filtered_indices = [i for i in top_indices if similarities[i] >= min_similarity]
-    
-    if not filtered_indices:
-        return "", [], []
-    
-    relevant_chunks = [st.session_state.knowledge_base[i] for i in filtered_indices]
-    chunk_sources = [st.session_state.chunk_metadata[i] for i in filtered_indices]
-    chunk_scores = [similarities[i] for i in filtered_indices]
-    
-    context = "\n\n".join(relevant_chunks)
-    return context, chunk_sources, chunk_scores
 
 
-def generate_response(message: str, chat_history: List[dict] = None) -> Tuple[str, List[str]]:
-    """Generate response with RAG and return sources"""
+def load_papers_from_embeddings(embeddings_file: str) -> Tuple[str, List[str], int]:
+    """
+    Reconstruct full paper texts from the embeddings pickle file.
+    Returns: (combined_text, paper_names, estimated_tokens)
+    """
+    if not os.path.exists(embeddings_file):
+        return "", [], 0
+    
+    with open(embeddings_file, 'rb') as f:
+        data = pickle.load(f)
+    
+    chunks = data["knowledge_base"]
+    metadata = data["chunk_metadata"]
+    
+    # Group chunks by source file
+    papers = {}
+    for chunk, meta in zip(chunks, metadata):
+        source = meta.get('source', meta.get('file', 'Unknown'))
+        if source not in papers:
+            papers[source] = []
+        papers[source].append(chunk)
+    
+    # Combine into structured document
+    combined_parts = []
+    paper_names = list(papers.keys())
+    
+    for paper_name in paper_names:
+        paper_chunks = papers[paper_name]
+        paper_text = "\n".join(paper_chunks)
+        combined_parts.append(f"""
+================================================================================
+PAPER: {paper_name}
+================================================================================
+{paper_text}
+""")
+    
+    combined_text = "\n".join(combined_parts)
+    
+    # Estimate tokens (~4 chars per token for English)
+    estimated_tokens = len(combined_text) // 4
+    
+    return combined_text, paper_names, estimated_tokens
+
+
+def generate_response(message: str, full_context: str, chat_history: List[dict] = None) -> str:
+    """Generate response using full paper context"""
     if not model:
-        return "⚠️ API key not configured.", []
+        return "⚠️ API key not configured."
+    
+    if not full_context:
+        return "⚠️ No papers loaded. Please check the embeddings file."
     
     try:
-        # Retrieve relevant context
-        context, sources, scores = retrieve_relevant_context(message, top_k=8, min_similarity=0.3)
-        
-        # Build conversation context from recent history (last 2 exchanges)
+        # Build conversation history (last 3 exchanges for continuity)
         conversation_context = ""
         if chat_history and len(chat_history) >= 2:
-            recent = chat_history[-4:]  # Last 2 Q&A pairs
+            recent = chat_history[-6:]  # Last 3 Q&A pairs
             conversation_context = "Recent conversation:\n"
             for msg in recent:
                 role = "User" if msg["role"] == "user" else "Assistant"
-                # Truncate long messages
-                content = msg["content"][:500] + "..." if len(msg["content"]) > 500 else msg["content"]
+                content = msg["content"][:800] + "..." if len(msg["content"]) > 800 else msg["content"]
                 conversation_context += f"{role}: {content}\n"
-            conversation_context += "\n"
+            conversation_context += "\n---\n\n"
         
-        if context:
-            # Deduplicate sources while preserving order
-            seen = set()
-            unique_sources = []
-            for s in sources:
-                if s['source'] not in seen:
-                    seen.add(s['source'])
-                    unique_sources.append(s['source'])
-            
-            source_info = "\n".join([f"- {s}" for s in unique_sources])
-            
-            augmented_prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
+        prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
 
-Answer the question using the retrieved SAFI research content below. Be accurate and base your response on the evidence provided.
+You have access to the complete text of all SAFI research papers below. Use this knowledge to answer questions accurately and comprehensively.
 
-{conversation_context}Retrieved from:
-{source_info}
+=== SAFI RESEARCH PAPERS ===
+{full_context}
+=== END OF PAPERS ===
 
----
-{context}
----
-
-Current question: {message}
+{conversation_context}Current question: {message}
 
 Instructions:
-- Answer based on the retrieved content above
-- Include specific numerical values with units when available
-- If the retrieved content doesn't fully address the question, acknowledge this
-- Cite the source when referencing specific findings (e.g., "According to [Author et al.]...")
+- Answer based on the paper content provided above
+- Include specific numerical values with units when available (e.g., "576 kg CO₂-eq/ADt")
+- Cite the specific paper when referencing findings
+- If comparing across papers, clearly indicate which findings come from which source
 - For terms like "carbon footprint," "GWP," and "global warming potential," treat them as equivalent metrics
-- If this is a follow-up question, use the conversation context appropriately
+- If the papers don't contain information to answer the question, say so clearly
+- Be thorough but concise
 
 Answer:"""
-            
-            response = model.generate_content(augmented_prompt)
-            return response.text, unique_sources
-        else:
-            augmented_prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
-
-{conversation_context}No relevant documents were retrieved for this question. Please let the user know and offer to help if they can rephrase or clarify.
-
-Question: {message}
-
-Answer:"""
-            
-            response = model.generate_content(augmented_prompt)
-            return response.text, []
+        
+        response = model.generate_content(prompt)
+        return response.text
     
     except Exception as e:
-        return f"Error: {str(e)}", []
+        error_msg = str(e)
+        if "quota" in error_msg.lower() or "limit" in error_msg.lower():
+            return "⚠️ API quota exceeded. The full-context approach uses more tokens per request. Try again later or switch to the RAG version."
+        return f"Error: {error_msg}"
+
 
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "knowledge_base" not in st.session_state:
-    st.session_state.knowledge_base = []
-if "embeddings" not in st.session_state:
-    st.session_state.embeddings = []
-if "chunk_metadata" not in st.session_state:
-    st.session_state.chunk_metadata = []
+if "full_context" not in st.session_state:
+    st.session_state.full_context = ""
+if "paper_names" not in st.session_state:
+    st.session_state.paper_names = []
+if "token_estimate" not in st.session_state:
+    st.session_state.token_estimate = 0
 if "initialized" not in st.session_state:
     st.session_state.initialized = False
 
-# Load pre-computed embeddings
+# Load papers on startup
 if not st.session_state.initialized and model:
-    with st.spinner("Loading SAFI knowledge base..."):
+    with st.spinner("Loading SAFI research papers..."):
         try:
             embeddings_file = "safi_embeddings.pkl"
             
-            if os.path.exists(embeddings_file):
-                with open(embeddings_file, 'rb') as f:
-                    data = pickle.load(f)
-                
-                st.session_state.knowledge_base = data["knowledge_base"]
-                st.session_state.embeddings = data["embeddings"]
-                st.session_state.chunk_metadata = data["chunk_metadata"]
-                
+            full_context, paper_names, token_estimate = load_papers_from_embeddings(embeddings_file)
+            
+            if full_context:
+                st.session_state.full_context = full_context
+                st.session_state.paper_names = paper_names
+                st.session_state.token_estimate = token_estimate
                 st.session_state.initialized = True
             else:
-                st.error(f"Embeddings file not found: {embeddings_file}")
+                st.error(f"Could not load papers from: {embeddings_file}")
                 
         except Exception as e:
-            st.error(f"Error loading embeddings: {str(e)}")
+            st.error(f"Error loading papers: {str(e)}")
 
 # ============ SIDEBAR ============
 with st.sidebar:
     st.markdown("### SAFI Research Intelligence")
+    st.caption("Full Context Mode")
     
     st.divider()
     
-    # CLEAR CHAT BUTTON
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
@@ -315,25 +237,32 @@ with st.sidebar:
     
     # Stats
     if st.session_state.initialized:
-        unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
-        st.metric("Research Papers", unique_papers)
-        st.metric("Total Chunks", len(st.session_state.knowledge_base))
-    
-    st.divider()
-    
-    # Settings
-    with st.expander("⚙️ Settings"):
-        show_sources = st.checkbox("Show sources in responses", value=True)
+        st.metric("Research Papers", len(st.session_state.paper_names))
+        st.metric("Est. Context Tokens", f"{st.session_state.token_estimate:,}")
+        
+        # Show paper list
+        with st.expander("📄 Loaded Papers"):
+            for name in st.session_state.paper_names:
+                st.caption(f"• {name}")
     
     st.divider()
     
     # About
     with st.expander("ℹ️ About"):
-        st.write("Ask questions about SAFI research on sustainable fibers, biomaterials, and life cycle assessment.")
+        st.write("""
+        **Full Context Mode** loads all SAFI papers directly into Gemini's context window.
+        
+        **Advantages:**
+        - No retrieval errors
+        - Handles cross-paper questions
+        - Better for complex queries
+        
+        **Trade-off:**
+        - Higher token usage per query
+        """)
 
 # ============ MAIN CONTENT ============
 
-# Header with centered icon (only when empty)
 if len(st.session_state.messages) == 0:
     st.markdown("""
         <div class="main-header">
@@ -342,12 +271,12 @@ if len(st.session_state.messages) == 0:
                 SAFI Research Intelligence
             </h1>
             <p style='color: #4a6b4a; font-size: 1rem; margin-top: 0.5rem;'>
-                Ask questions about SAFI research
+                Full Context Mode — All papers loaded
             </p>
         </div>
     """, unsafe_allow_html=True)
 
-# Display messages WITHOUT AVATARS
+# Display messages
 for msg in st.session_state.messages:
     if msg["role"] == "user":
         st.markdown(f"""
@@ -357,35 +286,24 @@ for msg in st.session_state.messages:
             </div>
         """, unsafe_allow_html=True)
     else:
-        content = msg["content"]
-        sources = msg.get("sources", [])
-        
-        # Build sources display if enabled and sources exist
-        sources_html = ""
-        if st.session_state.get("show_sources", True) and sources:
-            sources_list = "<br>".join([f"• {s}" for s in sources])
-            sources_html = f'<div class="sources-box"><strong>Sources:</strong><br>{sources_list}</div>'
-        
         st.markdown(f"""
             <div class="assistant-message">
                 <div class="message-label">SAFI Research Intelligence</div>
-                {content}
-                {sources_html}
+                {msg["content"]}
             </div>
         """, unsafe_allow_html=True)
 
 # Chat input
 if prompt := st.chat_input("Ask about SAFI research..."):
-    # Add user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # Generate response with chat history for context
-    with st.spinner("Thinking..."):
-        response, sources = generate_response(prompt, st.session_state.messages)
+    with st.spinner("Analyzing papers..."):
+        response = generate_response(
+            prompt, 
+            st.session_state.full_context,
+            st.session_state.messages
+        )
     
-    st.session_state.messages.append({
-        "role": "assistant", 
-        "content": response,
-        "sources": sources
-    })
+    st.session_state.messages.append({"role": "assistant", "content": response})
     st.rerun()
+
