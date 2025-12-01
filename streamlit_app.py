@@ -3,7 +3,7 @@ SAFI Research Intelligence - Clean UI with Green Theme
 """
 import streamlit as st
 import google.generativeai as genai
-from typing import List
+from typing import List, Tuple
 import numpy as np
 import PyPDF2
 import requests
@@ -82,6 +82,16 @@ st.markdown("""
     .stChatInputContainer {
         background-color: #f0f5f0;
     }
+    
+    /* Source citation styling */
+    .sources-box {
+        background-color: #f8faf8;
+        border-left: 3px solid #4a6b4a;
+        padding: 0.5rem 1rem;
+        margin-top: 1rem;
+        font-size: 0.85rem;
+        color: #5a7a5a;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -152,10 +162,10 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     b = np.array(b)
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def retrieve_relevant_context(query: str, top_k: int = 8) -> tuple:
-    """Retrieve most relevant chunks with metadata"""
+def retrieve_relevant_context(query: str, top_k: int = 8, min_similarity: float = 0.3) -> Tuple[str, List[dict], List[float]]:
+    """Retrieve most relevant chunks with metadata and similarity scores"""
     if not model or "embeddings" not in st.session_state or not st.session_state.embeddings:
-        return "", []
+        return "", [], []
     
     query_embedding = genai.embed_content(
         model=embedding_model,
@@ -168,22 +178,43 @@ def retrieve_relevant_context(query: str, top_k: int = 8) -> tuple:
         for doc_emb in st.session_state.embeddings
     ]
     
+    # Get top indices sorted by similarity
     top_indices = np.argsort(similarities)[-top_k:][::-1]
-    relevant_chunks = [st.session_state.knowledge_base[i] for i in top_indices]
-    chunk_sources = [st.session_state.chunk_metadata[i] for i in top_indices]
+    
+    # Filter by minimum similarity threshold
+    filtered_indices = [i for i in top_indices if similarities[i] >= min_similarity]
+    
+    if not filtered_indices:
+        return "", [], []
+    
+    relevant_chunks = [st.session_state.knowledge_base[i] for i in filtered_indices]
+    chunk_sources = [st.session_state.chunk_metadata[i] for i in filtered_indices]
+    chunk_scores = [similarities[i] for i in filtered_indices]
     
     context = "\n\n".join(relevant_chunks)
-    return context, chunk_sources
+    return context, chunk_sources, chunk_scores
 
 
-def generate_response(message: str) -> str:
-    """Generate response with RAG"""
+def generate_response(message: str, chat_history: List[dict] = None) -> Tuple[str, List[str]]:
+    """Generate response with RAG and return sources"""
     if not model:
-        return "⚠️ API key not configured."
+        return "⚠️ API key not configured.", []
     
     try:
-        # Retrieve relevant context (increased top_k for better coverage)
-        context, sources = retrieve_relevant_context(message, top_k=8)
+        # Retrieve relevant context
+        context, sources, scores = retrieve_relevant_context(message, top_k=8, min_similarity=0.3)
+        
+        # Build conversation context from recent history (last 2 exchanges)
+        conversation_context = ""
+        if chat_history and len(chat_history) >= 2:
+            recent = chat_history[-4:]  # Last 2 Q&A pairs
+            conversation_context = "Recent conversation:\n"
+            for msg in recent:
+                role = "User" if msg["role"] == "user" else "Assistant"
+                # Truncate long messages
+                content = msg["content"][:500] + "..." if len(msg["content"]) > 500 else msg["content"]
+                conversation_context += f"{role}: {content}\n"
+            conversation_context += "\n"
         
         if context:
             # Deduplicate sources while preserving order
@@ -192,22 +223,22 @@ def generate_response(message: str) -> str:
             for s in sources:
                 if s['source'] not in seen:
                     seen.add(s['source'])
-                    unique_sources.append(s)
+                    unique_sources.append(s['source'])
             
-            source_info = "\n".join([f"- {s['source']}" for s in unique_sources])
+            source_info = "\n".join([f"- {s}" for s in unique_sources])
             
             augmented_prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
 
 Answer the question using the retrieved SAFI research content below. Be accurate and base your response on the evidence provided.
 
-Retrieved from:
+{conversation_context}Retrieved from:
 {source_info}
 
-
+---
 {context}
+---
 
-
-Question: {message}
+Current question: {message}
 
 Instructions:
 - Answer based on the retrieved content above
@@ -215,22 +246,26 @@ Instructions:
 - If the retrieved content doesn't fully address the question, acknowledge this
 - Cite the source when referencing specific findings (e.g., "According to [Author et al.]...")
 - For terms like "carbon footprint," "GWP," and "global warming potential," treat them as equivalent metrics
+- If this is a follow-up question, use the conversation context appropriately
 
 Answer:"""
+            
+            response = model.generate_content(augmented_prompt)
+            return response.text, unique_sources
         else:
             augmented_prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
 
-No relevant documents were retrieved for this question. Please let the user know and offer to help if they can rephrase or clarify.
+{conversation_context}No relevant documents were retrieved for this question. Please let the user know and offer to help if they can rephrase or clarify.
 
 Question: {message}
 
 Answer:"""
-        
-        response = model.generate_content(augmented_prompt)
-        return response.text
+            
+            response = model.generate_content(augmented_prompt)
+            return response.text, []
     
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: {str(e)}", []
 
 # Initialize session state
 if "messages" not in st.session_state:
@@ -282,6 +317,13 @@ with st.sidebar:
     if st.session_state.initialized:
         unique_papers = len(set([m['file'] for m in st.session_state.chunk_metadata]))
         st.metric("Research Papers", unique_papers)
+        st.metric("Total Chunks", len(st.session_state.knowledge_base))
+    
+    st.divider()
+    
+    # Settings
+    with st.expander("⚙️ Settings"):
+        show_sources = st.checkbox("Show sources in responses", value=True)
     
     st.divider()
     
@@ -315,10 +357,20 @@ for msg in st.session_state.messages:
             </div>
         """, unsafe_allow_html=True)
     else:
+        content = msg["content"]
+        sources = msg.get("sources", [])
+        
+        # Build sources display if enabled and sources exist
+        sources_html = ""
+        if st.session_state.get("show_sources", True) and sources:
+            sources_list = "<br>".join([f"• {s}" for s in sources])
+            sources_html = f'<div class="sources-box"><strong>Sources:</strong><br>{sources_list}</div>'
+        
         st.markdown(f"""
             <div class="assistant-message">
                 <div class="message-label">SAFI Research Intelligence</div>
-                {msg["content"]}
+                {content}
+                {sources_html}
             </div>
         """, unsafe_allow_html=True)
 
@@ -327,9 +379,13 @@ if prompt := st.chat_input("Ask about SAFI research..."):
     # Add user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # Generate response
+    # Generate response with chat history for context
     with st.spinner("Thinking..."):
-        response = generate_response(prompt)
+        response, sources = generate_response(prompt, st.session_state.messages)
     
-    st.session_state.messages.append({"role": "assistant", "content": response})
+    st.session_state.messages.append({
+        "role": "assistant", 
+        "content": response,
+        "sources": sources
+    })
     st.rerun()
