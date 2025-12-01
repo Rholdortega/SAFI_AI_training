@@ -368,11 +368,7 @@ with st.sidebar:
     
     with st.expander("ℹ️ About"):
         st.write("""
-        **Hybrid Mode** combines:
-        - Paper summaries for cross-paper awareness
-        - RAG retrieval for detailed answers
-        
-        Best of both approaches within API limits.
+ More than 30 global entities working together to study, develop and promote the utilization of alternative fibers for packaging, hygiene, nonwoven and textile products
         """)
 
 # ============ MAIN CONTENT ============
