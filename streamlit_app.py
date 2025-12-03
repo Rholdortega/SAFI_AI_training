@@ -1,6 +1,6 @@
 """
-SAFI Research Intelligence - Hybrid Version
-Paper summaries (full context) + RAG retrieval for details
+SAFI Research Intelligence - Hybrid Version with Excel Upload
+Paper summaries (full context) + RAG retrieval for details + Excel data integration
 """
 import streamlit as st
 import google.generativeai as genai
@@ -10,6 +10,7 @@ import os
 import pickle
 import json
 import time
+import pandas as pd
 
 # Page config
 st.set_page_config(
@@ -65,6 +66,13 @@ st.markdown("""
         margin-top: 1rem;
         font-size: 0.85rem;
         color: #5a7a5a;
+    }
+    .data-info {
+        background-color: #e8f4e8;
+        border-radius: 8px;
+        padding: 0.5rem;
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -233,12 +241,37 @@ def retrieve_relevant_chunks(
     return context, sources
 
 
+def build_excel_context(df: pd.DataFrame, sheet_name: str = None) -> str:
+    """Build context string from uploaded Excel data"""
+    if df is None or df.empty:
+        return ""
+    
+    # Get basic stats
+    num_rows, num_cols = df.shape
+    columns = df.columns.tolist()
+    
+    # Build context
+    context_parts = [
+        f"=== UPLOADED EXCEL DATA {'(' + sheet_name + ')' if sheet_name else ''} ===",
+        f"Dataset contains {num_rows} rows and {num_cols} columns.",
+        f"Columns: {', '.join(columns)}",
+        "",
+        "Full data:",
+        df.to_string(index=False),
+        "",
+        "=== END OF EXCEL DATA ==="
+    ]
+    
+    return "\n".join(context_parts)
+
+
 def generate_response(
     message: str,
     summaries_context: str,
     chunks: List[str],
     embeddings: List[List[float]],
     metadata: List[dict],
+    excel_context: str = "",
     chat_history: List[dict] = None
 ) -> Tuple[str, List[str]]:
     """Generate response using hybrid approach"""
@@ -271,28 +304,47 @@ def generate_response(
 === END OF EXCERPTS ===
 """
         
+        # Build Excel data section
+        excel_section = ""
+        if excel_context:
+            excel_section = f"""
+{excel_context}
+"""
+        
         prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
 
 You have access to:
 1. SUMMARIES of all SAFI research papers (for overview and cross-paper questions)
 2. DETAILED EXCERPTS retrieved specifically for this question (for precise data)
+3. UPLOADED EXCEL DATA with fiber morphology measurements (if available)
 
 {summaries_context}
 
 {detailed_section}
+
+{excel_section}
 
 {conversation}Current question: {message}
 
 Instructions:
 - Use summaries for overview and cross-paper synthesis questions
 - Use detailed excerpts for specific numerical values and methodology details
+- Use Excel data when questions relate to fiber properties, morphology, or comparisons between fiber types
 - Include specific values with units when available
 - Cite the paper when referencing findings
-- If information isn't available in either source, say so clearly
+- When using Excel data, specify which biomass/fiber type you're referencing
+- If information isn't available in any source, say so clearly
 
 Answer:"""
         
         response = model.generate_content(prompt)
+        
+        # Add "Excel Data" to sources if Excel context was used and question seems related
+        excel_keywords = ['fiber', 'length', 'width', 'kappa', 'coarseness', 'curl', 'fines', 
+                         'morphology', 'pulp', 'biomass', 'tissue', 'benchmark', 'compare']
+        if excel_context and any(kw in message.lower() for kw in excel_keywords):
+            sources = sources + ["Uploaded Excel Data"]
+        
         return response.text, sources
     
     except Exception as e:
@@ -317,6 +369,12 @@ if "paper_names" not in st.session_state:
     st.session_state.paper_names = []
 if "initialized" not in st.session_state:
     st.session_state.initialized = False
+if "uploaded_df" not in st.session_state:
+    st.session_state.uploaded_df = None
+if "uploaded_sheet_name" not in st.session_state:
+    st.session_state.uploaded_sheet_name = None
+if "excel_context" not in st.session_state:
+    st.session_state.excel_context = ""
 
 # Load data on startup
 if not st.session_state.initialized and model:
@@ -349,12 +407,68 @@ with st.sidebar:
     
     st.divider()
     
+    # Excel file upload section
+    st.markdown("#### 📊 Data Upload")
+    uploaded_file = st.file_uploader(
+        "Upload Excel file", 
+        type=["xlsx", "xls"],
+        help="Upload fiber morphology or other data to include in analysis"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            # Read Excel file
+            xl = pd.ExcelFile(uploaded_file)
+            sheet_names = xl.sheet_names
+            
+            # Sheet selector if multiple sheets
+            if len(sheet_names) > 1:
+                selected_sheet = st.selectbox("Select sheet", sheet_names)
+            else:
+                selected_sheet = sheet_names[0]
+            
+            # Load the selected sheet
+            df = pd.read_excel(xl, sheet_name=selected_sheet)
+            
+            # Store in session state
+            st.session_state.uploaded_df = df
+            st.session_state.uploaded_sheet_name = selected_sheet
+            st.session_state.excel_context = build_excel_context(df, selected_sheet)
+            
+            # Show success and stats
+            st.success(f"✓ Loaded {len(df)} rows × {len(df.columns)} cols")
+            
+            # Preview
+            with st.expander("📋 Preview data"):
+                st.dataframe(df.head(10), use_container_width=True)
+            
+            # Column info
+            with st.expander("📊 Columns"):
+                for col in df.columns:
+                    dtype = df[col].dtype
+                    st.caption(f"• {col} ({dtype})")
+                    
+        except Exception as e:
+            st.error(f"Error loading file: {str(e)}")
+    
+    # Clear uploaded data button
+    if st.session_state.uploaded_df is not None:
+        if st.button("🗑️ Clear Excel Data", use_container_width=True):
+            st.session_state.uploaded_df = None
+            st.session_state.uploaded_sheet_name = None
+            st.session_state.excel_context = ""
+            st.rerun()
+    
+    st.divider()
+    
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
     
     st.divider()
     
+    # Status indicators
+    st.markdown("#### 📚 Knowledge Base")
     if st.session_state.initialized:
         st.metric("Papers", len(st.session_state.paper_names))
         
@@ -362,16 +476,34 @@ with st.sidebar:
             for name in st.session_state.paper_names:
                 st.caption(f"• {name}")
     
+    if st.session_state.uploaded_df is not None:
+        st.markdown("#### 📊 Excel Data")
+        st.caption(f"Sheet: {st.session_state.uploaded_sheet_name}")
+        st.caption(f"Size: {st.session_state.uploaded_df.shape[0]} × {st.session_state.uploaded_df.shape[1]}")
+    
     st.divider()
     
     with st.expander("ℹ️ About"):
         st.write("""
- More than 30 global entities working together to study, develop and promote the utilization of alternative fibers for packaging, hygiene, nonwoven and textile products
+More than 30 global entities working together to study, develop and promote the utilization of alternative fibers for packaging, hygiene, nonwoven and textile products.
+
+**Features:**
+- 📄 Research paper summaries + RAG retrieval
+- 📊 Excel data integration for fiber analysis
         """)
 
 # ============ MAIN CONTENT ============
 if len(st.session_state.messages) == 0:
-    st.markdown("""
+    # Show data status in header
+    data_status = []
+    if st.session_state.initialized:
+        data_status.append(f"📄 {len(st.session_state.paper_names)} papers")
+    if st.session_state.uploaded_df is not None:
+        data_status.append(f"📊 Excel data loaded")
+    
+    status_text = " • ".join(data_status) if data_status else "Configure API key to start"
+    
+    st.markdown(f"""
         <div class="main-header">
             <div style='font-size: 4rem; margin-bottom: 1rem;'>🎍</div>
             <h1 style='font-size: 2.5rem; margin: 0; font-weight: 400;'>
@@ -379,6 +511,9 @@ if len(st.session_state.messages) == 0:
             </h1>
             <p style='color: #4a6b4a; font-size: 1rem; margin-top: 0.5rem;'>
                 Ask about SAFI research
+            </p>
+            <p style='color: #6a8a6a; font-size: 0.85rem; margin-top: 0.25rem;'>
+                {status_text}
             </p>
         </div>
     """, unsafe_allow_html=True)
@@ -399,7 +534,7 @@ for msg in st.session_state.messages:
         sources_html = ""
         if sources:
             sources_list = "<br>".join([f"• {s}" for s in sources])
-            sources_html = f'<div class="sources-box"><strong>Detailed sources:</strong><br>{sources_list}</div>'
+            sources_html = f'<div class="sources-box"><strong>Sources:</strong><br>{sources_list}</div>'
         
         st.markdown(f"""
             <div class="assistant-message">
@@ -410,7 +545,7 @@ for msg in st.session_state.messages:
         """, unsafe_allow_html=True)
 
 # Chat input
-if prompt := st.chat_input("Ask about SAFI research..."):
+if prompt := st.chat_input("Ask about SAFI research or uploaded data..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     
     with st.spinner("Analyzing..."):
@@ -420,6 +555,7 @@ if prompt := st.chat_input("Ask about SAFI research..."):
             st.session_state.chunks,
             st.session_state.embeddings,
             st.session_state.metadata,
+            st.session_state.excel_context,
             st.session_state.messages
         )
     
