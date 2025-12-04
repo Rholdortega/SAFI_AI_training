@@ -1,6 +1,6 @@
 """
-SAFI Research Intelligence - Hybrid Version with Excel Upload
-Paper summaries (full context) + RAG retrieval for details + Excel data integration
+SAFI Research Intelligence - Full Context Version
+Full paper content (1M token context) + RAG retrieval + Pre-loaded Excel data
 """
 import streamlit as st
 import google.generativeai as genai
@@ -19,6 +19,22 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded"
 )
+
+# ============ CONFIGURATION ============
+# Pre-loaded Excel file path (change this to your file location)
+PRELOADED_EXCEL_FILE = "FQA_Compilation.xlsx"  # Place this file in same directory as app
+PRELOADED_EXCEL_SHEET = "Fiber morphology"      # Sheet name to load
+
+# Embeddings file
+EMBEDDINGS_FILE = "safi_embeddings.pkl"
+
+# Model settings - using Gemini 2.5 Flash with 1M context
+MODEL_NAME = "gemini-2.5-flash"
+EMBEDDING_MODEL = "models/text-embedding-004"
+
+# Context settings
+MAX_PAPER_CHARS = 50000  # Max characters per paper (adjust based on your needs)
+# =======================================
 
 # Custom CSS
 st.markdown("""
@@ -74,6 +90,16 @@ st.markdown("""
         margin-top: 0.5rem;
         font-size: 0.8rem;
     }
+    .context-indicator {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        border-radius: 5px;
+        padding: 0.3rem 0.6rem;
+        font-size: 0.75rem;
+        color: #155724;
+        display: inline-block;
+        margin: 0.2rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -86,8 +112,8 @@ except:
 # Configure Gemini
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    embedding_model = "models/text-embedding-004"
+    model = genai.GenerativeModel(MODEL_NAME)
+    embedding_model = EMBEDDING_MODEL
 else:
     model = None
     embedding_model = None
@@ -105,7 +131,7 @@ def load_embeddings_data(embeddings_file: str) -> Tuple[List[str], List[List[flo
     embeddings = data["embeddings"]
     metadata = data["chunk_metadata"]
     
-    # Group chunks by paper for summary generation
+    # Group chunks by paper for full context
     papers_text = {}
     for chunk, meta in zip(chunks, metadata):
         source = meta.get('source', meta.get('file', 'Unknown'))
@@ -113,7 +139,7 @@ def load_embeddings_data(embeddings_file: str) -> Tuple[List[str], List[List[flo
             papers_text[source] = []
         papers_text[source].append(chunk)
     
-    # Combine chunks per paper
+    # Combine chunks per paper (full text)
     papers_combined = {
         name: "\n".join(chunks_list) 
         for name, chunks_list in papers_text.items()
@@ -122,79 +148,77 @@ def load_embeddings_data(embeddings_file: str) -> Tuple[List[str], List[List[flo
     return chunks, embeddings, metadata, papers_combined
 
 
-def generate_paper_summary(paper_name: str, paper_text: str, max_chars: int = 8000) -> str:
-    """Generate a structured summary of a paper"""
-    # Truncate if too long to summarize
-    if len(paper_text) > 50000:
-        paper_text = paper_text[:50000] + "\n[...truncated for summarization...]"
+def load_preloaded_excel(file_path: str, sheet_name: str = None) -> Tuple[pd.DataFrame, str]:
+    """Load the pre-configured Excel file"""
+    if not os.path.exists(file_path):
+        return None, ""
     
-    prompt = f"""Summarize this research paper in a structured format. Be concise but include all key quantitative findings.
-
-PAPER: {paper_name}
-
-{paper_text}
-
-Provide a summary with these sections (use 2-3 sentences each, more for key findings):
-1. **Objective**: What the paper investigates
-2. **Methods**: Key methodology (LCA approach, system boundaries, etc.)
-3. **Key Findings**: Most important numerical results with units (e.g., GWP values, carbon footprints)
-4. **Conclusions**: Main takeaways
-
-Keep total summary under 500 words. Prioritize numerical data."""
-
     try:
-        response = model.generate_content(prompt)
-        return response.text
+        if sheet_name:
+            df = pd.read_excel(file_path, sheet_name=sheet_name)
+        else:
+            df = pd.read_excel(file_path)
+        
+        context = build_excel_context(df, sheet_name, is_preloaded=True)
+        return df, context
     except Exception as e:
-        return f"Summary generation failed: {str(e)}"
+        st.warning(f"Could not load pre-configured Excel file: {e}")
+        return None, ""
 
 
-def load_or_generate_summaries(papers_combined: Dict[str, str], cache_file: str = "safi_summaries.json") -> Dict[str, str]:
-    """Load cached summaries or generate new ones"""
+def build_excel_context(df: pd.DataFrame, sheet_name: str = None, is_preloaded: bool = False) -> str:
+    """Build context string from Excel data"""
+    if df is None or df.empty:
+        return ""
     
-    # Try to load from cache
-    if os.path.exists(cache_file):
-        try:
-            with open(cache_file, 'r') as f:
-                cached = json.load(f)
-            # Check if all papers are present
-            if set(cached.keys()) == set(papers_combined.keys()):
-                return cached
-        except:
-            pass
+    num_rows, num_cols = df.shape
+    columns = df.columns.tolist()
     
-    # Generate summaries
-    summaries = {}
-    progress_bar = st.progress(0, text="Generating paper summaries...")
+    prefix = "PRE-LOADED" if is_preloaded else "UPLOADED"
     
-    for i, (name, text) in enumerate(papers_combined.items()):
-        progress_bar.progress(
-            (i + 1) / len(papers_combined), 
-            text=f"Summarizing: {name[:50]}..."
-        )
-        summaries[name] = generate_paper_summary(name, text)
-        time.sleep(0.5)  # Rate limiting
+    context_parts = [
+        f"=== {prefix} EXCEL DATA {'(' + sheet_name + ')' if sheet_name else ''} ===",
+        f"Dataset contains {num_rows} rows and {num_cols} columns.",
+        f"Columns: {', '.join(columns)}",
+        "",
+        "Full data:",
+        df.to_string(index=False),
+        "",
+        f"=== END OF {prefix} EXCEL DATA ==="
+    ]
     
-    progress_bar.empty()
-    
-    # Cache summaries
-    try:
-        with open(cache_file, 'w') as f:
-            json.dump(summaries, f, indent=2)
-    except:
-        pass
-    
-    return summaries
+    return "\n".join(context_parts)
 
 
-def build_summaries_context(summaries: Dict[str, str]) -> str:
-    """Build the summaries section for the prompt"""
-    parts = ["=== SAFI RESEARCH PAPER SUMMARIES ===\n"]
+def build_full_papers_context(papers_combined: Dict[str, str], max_chars_per_paper: int = MAX_PAPER_CHARS) -> str:
+    """Build full paper content context (instead of just summaries)"""
+    parts = ["=== SAFI RESEARCH PAPERS - FULL CONTENT ===\n"]
+    parts.append("You have access to the complete text of the following research papers:\n")
     
-    for name, summary in summaries.items():
-        parts.append(f"### {name}\n{summary}\n")
+    total_chars = 0
+    for name, text in papers_combined.items():
+        # Truncate very long papers if needed
+        if len(text) > max_chars_per_paper:
+            truncated_text = text[:max_chars_per_paper] + f"\n\n[... Paper truncated at {max_chars_per_paper} characters ...]"
+        else:
+            truncated_text = text
+        
+        paper_section = f"""
+{'='*60}
+PAPER: {name}
+{'='*60}
+{truncated_text}
+
+"""
+        parts.append(paper_section)
+        total_chars += len(truncated_text)
     
-    parts.append("=== END OF SUMMARIES ===")
+    parts.append("=== END OF RESEARCH PAPERS ===")
+    
+    # Log approximate token count (rough estimate: 1 token ≈ 4 chars)
+    approx_tokens = total_chars // 4
+    parts.insert(1, f"[Approximate context size: {total_chars:,} characters / ~{approx_tokens:,} tokens]\n")
+    
     return "\n".join(parts)
 
 
@@ -213,7 +237,7 @@ def retrieve_relevant_chunks(
     top_k: int = 6,
     min_similarity: float = 0.35
 ) -> Tuple[str, List[str]]:
-    """Retrieve relevant chunks using embeddings"""
+    """Retrieve relevant chunks using embeddings (for highlighting specific sections)"""
     if not embeddings:
         return "", []
     
@@ -241,45 +265,22 @@ def retrieve_relevant_chunks(
     return context, sources
 
 
-def build_excel_context(df: pd.DataFrame, sheet_name: str = None) -> str:
-    """Build context string from uploaded Excel data"""
-    if df is None or df.empty:
-        return ""
-    
-    # Get basic stats
-    num_rows, num_cols = df.shape
-    columns = df.columns.tolist()
-    
-    # Build context
-    context_parts = [
-        f"=== UPLOADED EXCEL DATA {'(' + sheet_name + ')' if sheet_name else ''} ===",
-        f"Dataset contains {num_rows} rows and {num_cols} columns.",
-        f"Columns: {', '.join(columns)}",
-        "",
-        "Full data:",
-        df.to_string(index=False),
-        "",
-        "=== END OF EXCEL DATA ==="
-    ]
-    
-    return "\n".join(context_parts)
-
-
 def generate_response(
     message: str,
-    summaries_context: str,
+    full_papers_context: str,
     chunks: List[str],
     embeddings: List[List[float]],
     metadata: List[dict],
-    excel_context: str = "",
+    preloaded_excel_context: str = "",
+    uploaded_excel_context: str = "",
     chat_history: List[dict] = None
 ) -> Tuple[str, List[str]]:
-    """Generate response using hybrid approach"""
+    """Generate response using full context approach"""
     if not model:
         return "⚠️ API key not configured.", []
     
     try:
-        # Retrieve detailed chunks
+        # Retrieve most relevant chunks (to highlight specific sections)
         detailed_context, sources = retrieve_relevant_chunks(
             message, chunks, embeddings, metadata, top_k=6
         )
@@ -295,55 +296,69 @@ def generate_response(
                 conversation += f"{role}: {content}\n"
             conversation += "\n"
         
-        # Build detailed context section
-        detailed_section = ""
+        # Build highlighted sections (from RAG retrieval)
+        highlighted_section = ""
         if detailed_context:
-            detailed_section = f"""
-=== DETAILED EXCERPTS (most relevant to your question) ===
+            highlighted_section = f"""
+=== MOST RELEVANT SECTIONS (retrieved via semantic search) ===
+These sections are most relevant to the current question:
+
 {detailed_context}
-=== END OF EXCERPTS ===
+
+=== END OF HIGHLIGHTED SECTIONS ===
 """
         
-        # Build Excel data section
+        # Combine Excel contexts
         excel_section = ""
-        if excel_context:
-            excel_section = f"""
-{excel_context}
-"""
+        if preloaded_excel_context or uploaded_excel_context:
+            excel_parts = []
+            if preloaded_excel_context:
+                excel_parts.append(preloaded_excel_context)
+            if uploaded_excel_context:
+                excel_parts.append(uploaded_excel_context)
+            excel_section = "\n\n".join(excel_parts)
         
         prompt = f"""You are a research assistant for the Sustainable & Alternative Fibers Initiative (SAFI).
 
 You have access to:
-1. SUMMARIES of all SAFI research papers (for overview and cross-paper questions)
-2. DETAILED EXCERPTS retrieved specifically for this question (for precise data)
-3. UPLOADED EXCEL DATA with fiber morphology measurements (if available)
+1. FULL TEXT of all 17 SAFI research papers (complete content below)
+2. HIGHLIGHTED SECTIONS retrieved specifically for this question (most relevant excerpts)
+3. EXCEL DATA with fiber morphology measurements and other data
 
-{summaries_context}
+{full_papers_context}
 
-{detailed_section}
+{highlighted_section}
 
 {excel_section}
 
 {conversation}Current question: {message}
 
 Instructions:
-- Use summaries for overview and cross-paper synthesis questions
-- Use detailed excerpts for specific numerical values and methodology details
-- Use Excel data when questions relate to fiber properties, morphology, or comparisons between fiber types
-- Include specific values with units when available
-- Cite the paper when referencing findings
+- You have the COMPLETE text of all papers - use this for comprehensive answers
+- The highlighted sections show the most relevant parts for quick reference
+- Use Excel data when questions relate to fiber properties, morphology, or comparisons
+- Include specific numerical values with units when available
+- Cite the paper name when referencing findings
 - When using Excel data, specify which biomass/fiber type you're referencing
+- Provide thorough, well-researched answers since you have full paper access
 - If information isn't available in any source, say so clearly
 
 Answer:"""
         
         response = model.generate_content(prompt)
         
-        # Add "Excel Data" to sources if Excel context was used and question seems related
+        # Determine sources used
         excel_keywords = ['fiber', 'length', 'width', 'kappa', 'coarseness', 'curl', 'fines', 
-                         'morphology', 'pulp', 'biomass', 'tissue', 'benchmark', 'compare']
-        if excel_context and any(kw in message.lower() for kw in excel_keywords):
-            sources = sources + ["Uploaded Excel Data"]
+                         'morphology', 'pulp', 'biomass', 'tissue', 'benchmark', 'compare',
+                         'fwt', 'fibrilation', 'kink', 'application']
+        
+        if preloaded_excel_context and any(kw in message.lower() for kw in excel_keywords):
+            if "Pre-loaded Excel Data" not in sources:
+                sources.append("Pre-loaded Excel Data")
+        
+        if uploaded_excel_context and any(kw in message.lower() for kw in excel_keywords):
+            if "Uploaded Excel Data" not in sources:
+                sources.append("Uploaded Excel Data")
         
         return response.text, sources
     
@@ -351,7 +366,14 @@ Answer:"""
         error_msg = str(e)
         if "quota" in error_msg.lower():
             return "⚠️ API quota exceeded. Please try again later.", []
+        elif "too long" in error_msg.lower() or "token" in error_msg.lower():
+            return "⚠️ Context too long. Try reducing paper content or ask a more specific question.", []
         return f"Error: {error_msg}", []
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough estimate of tokens (1 token ≈ 4 characters)"""
+    return len(text) // 4
 
 
 # Initialize session state
@@ -363,26 +385,31 @@ if "embeddings" not in st.session_state:
     st.session_state.embeddings = []
 if "metadata" not in st.session_state:
     st.session_state.metadata = []
-if "summaries_context" not in st.session_state:
-    st.session_state.summaries_context = ""
+if "full_papers_context" not in st.session_state:
+    st.session_state.full_papers_context = ""
 if "paper_names" not in st.session_state:
     st.session_state.paper_names = []
 if "initialized" not in st.session_state:
     st.session_state.initialized = False
+if "preloaded_excel_df" not in st.session_state:
+    st.session_state.preloaded_excel_df = None
+if "preloaded_excel_context" not in st.session_state:
+    st.session_state.preloaded_excel_context = ""
 if "uploaded_df" not in st.session_state:
     st.session_state.uploaded_df = None
 if "uploaded_sheet_name" not in st.session_state:
     st.session_state.uploaded_sheet_name = None
-if "excel_context" not in st.session_state:
-    st.session_state.excel_context = ""
+if "uploaded_excel_context" not in st.session_state:
+    st.session_state.uploaded_excel_context = ""
+if "context_stats" not in st.session_state:
+    st.session_state.context_stats = {}
 
 # Load data on startup
 if not st.session_state.initialized and model:
-    with st.spinner("Loading SAFI knowledge base..."):
+    with st.spinner("Loading SAFI knowledge base (full papers)..."):
         try:
-            embeddings_file = "safi_embeddings.pkl"
-            
-            chunks, embeddings, metadata, papers_combined = load_embeddings_data(embeddings_file)
+            # Load embeddings and full paper content
+            chunks, embeddings, metadata, papers_combined = load_embeddings_data(EMBEDDINGS_FILE)
             
             if chunks:
                 st.session_state.chunks = chunks
@@ -390,73 +417,115 @@ if not st.session_state.initialized and model:
                 st.session_state.metadata = metadata
                 st.session_state.paper_names = list(papers_combined.keys())
                 
-                # Generate/load summaries
-                summaries = load_or_generate_summaries(papers_combined)
-                st.session_state.summaries_context = build_summaries_context(summaries)
+                # Build FULL paper context (not just summaries)
+                st.session_state.full_papers_context = build_full_papers_context(papers_combined)
+                
+                # Calculate context stats
+                papers_chars = len(st.session_state.full_papers_context)
+                st.session_state.context_stats["papers_chars"] = papers_chars
+                st.session_state.context_stats["papers_tokens"] = estimate_tokens(st.session_state.full_papers_context)
                 
                 st.session_state.initialized = True
             else:
-                st.error(f"Could not load: {embeddings_file}")
+                st.error(f"Could not load: {EMBEDDINGS_FILE}")
                 
         except Exception as e:
-            st.error(f"Error: {str(e)}")
+            st.error(f"Error loading papers: {str(e)}")
+    
+    # Load pre-configured Excel file
+    with st.spinner("Loading pre-configured Excel data..."):
+        try:
+            preloaded_df, preloaded_context = load_preloaded_excel(PRELOADED_EXCEL_FILE, PRELOADED_EXCEL_SHEET)
+            if preloaded_df is not None:
+                st.session_state.preloaded_excel_df = preloaded_df
+                st.session_state.preloaded_excel_context = preloaded_context
+                st.session_state.context_stats["excel_chars"] = len(preloaded_context)
+                st.session_state.context_stats["excel_tokens"] = estimate_tokens(preloaded_context)
+        except Exception as e:
+            st.warning(f"Could not load pre-configured Excel: {str(e)}")
 
 # ============ SIDEBAR ============
 with st.sidebar:
     st.markdown("### SAFI Research Intelligence")
+    st.markdown("##### Full Context Mode 🚀")
     
     st.divider()
     
-    # Excel file upload section
-    st.markdown("#### 📊 Data Upload")
+    # Context Status
+    st.markdown("#### 📊 Context Status")
+    
+    if st.session_state.initialized:
+        total_tokens = st.session_state.context_stats.get("papers_tokens", 0) + \
+                      st.session_state.context_stats.get("excel_tokens", 0)
+        
+        st.markdown(f"""
+        <div class="context-indicator">📄 {len(st.session_state.paper_names)} papers loaded</div>
+        <div class="context-indicator">~{st.session_state.context_stats.get("papers_tokens", 0):,} tokens</div>
+        """, unsafe_allow_html=True)
+        
+        if st.session_state.preloaded_excel_df is not None:
+            st.markdown(f"""
+            <div class="context-indicator">📊 Excel: {st.session_state.preloaded_excel_df.shape[0]} rows</div>
+            """, unsafe_allow_html=True)
+        
+        st.caption(f"Total context: ~{total_tokens:,} tokens")
+        st.progress(min(total_tokens / 1000000, 1.0), text=f"{total_tokens/1000000*100:.1f}% of 1M limit")
+    
+    st.divider()
+    
+    # Pre-loaded Excel info
+    if st.session_state.preloaded_excel_df is not None:
+        st.markdown("#### 📊 Pre-loaded Data")
+        st.caption(f"File: {PRELOADED_EXCEL_FILE}")
+        st.caption(f"Sheet: {PRELOADED_EXCEL_SHEET}")
+        st.caption(f"Size: {st.session_state.preloaded_excel_df.shape[0]} × {st.session_state.preloaded_excel_df.shape[1]}")
+        
+        with st.expander("📋 Preview pre-loaded data"):
+            st.dataframe(st.session_state.preloaded_excel_df.head(10), use_container_width=True)
+        
+        with st.expander("📊 Columns"):
+            for col in st.session_state.preloaded_excel_df.columns:
+                st.caption(f"• {col}")
+    
+    st.divider()
+    
+    # Additional Excel file upload section
+    st.markdown("#### 📤 Upload Additional Data")
     uploaded_file = st.file_uploader(
         "Upload Excel file", 
         type=["xlsx", "xls"],
-        help="Upload fiber morphology or other data to include in analysis"
+        help="Upload additional data to include in analysis"
     )
     
     if uploaded_file is not None:
         try:
-            # Read Excel file
             xl = pd.ExcelFile(uploaded_file)
             sheet_names = xl.sheet_names
             
-            # Sheet selector if multiple sheets
             if len(sheet_names) > 1:
                 selected_sheet = st.selectbox("Select sheet", sheet_names)
             else:
                 selected_sheet = sheet_names[0]
             
-            # Load the selected sheet
             df = pd.read_excel(xl, sheet_name=selected_sheet)
             
-            # Store in session state
             st.session_state.uploaded_df = df
             st.session_state.uploaded_sheet_name = selected_sheet
-            st.session_state.excel_context = build_excel_context(df, selected_sheet)
+            st.session_state.uploaded_excel_context = build_excel_context(df, selected_sheet, is_preloaded=False)
             
-            # Show success and stats
             st.success(f"✓ Loaded {len(df)} rows × {len(df.columns)} cols")
             
-            # Preview
-            with st.expander("📋 Preview data"):
+            with st.expander("📋 Preview uploaded data"):
                 st.dataframe(df.head(10), use_container_width=True)
-            
-            # Column info
-            with st.expander("📊 Columns"):
-                for col in df.columns:
-                    dtype = df[col].dtype
-                    st.caption(f"• {col} ({dtype})")
                     
         except Exception as e:
             st.error(f"Error loading file: {str(e)}")
     
-    # Clear uploaded data button
     if st.session_state.uploaded_df is not None:
-        if st.button("🗑️ Clear Excel Data", use_container_width=True):
+        if st.button("🗑️ Clear Uploaded Data", use_container_width=True):
             st.session_state.uploaded_df = None
             st.session_state.uploaded_sheet_name = None
-            st.session_state.excel_context = ""
+            st.session_state.uploaded_excel_context = ""
             st.rerun()
     
     st.divider()
@@ -467,29 +536,28 @@ with st.sidebar:
     
     st.divider()
     
-    # Status indicators
-    st.markdown("#### 📚 Knowledge Base")
+    # Papers list
     if st.session_state.initialized:
-        st.metric("Papers", len(st.session_state.paper_names))
-        
-        with st.expander("📄 Papers"):
+        with st.expander("📄 Papers in Context"):
             for name in st.session_state.paper_names:
                 st.caption(f"• {name}")
-    
-    if st.session_state.uploaded_df is not None:
-        st.markdown("#### 📊 Excel Data")
-        st.caption(f"Sheet: {st.session_state.uploaded_sheet_name}")
-        st.caption(f"Size: {st.session_state.uploaded_df.shape[0]} × {st.session_state.uploaded_df.shape[1]}")
     
     st.divider()
     
     with st.expander("ℹ️ About"):
         st.write("""
-More than 30 global entities working together to study, develop and promote the utilization of alternative fibers for packaging, hygiene, nonwoven and textile products.
+**SAFI Research Intelligence - Full Context Mode**
+
+This version loads the COMPLETE text of all 17 research papers into context, leveraging Gemini's 1M token window.
 
 **Features:**
-- 📄 Research paper summaries + RAG retrieval
-- 📊 Excel data integration for fiber analysis
+- 📄 Full paper content (not just summaries)
+- 🔍 Semantic search for highlighting relevant sections
+- 📊 Pre-loaded Excel data (fiber morphology)
+- 📤 Additional Excel upload support
+- 💬 Conversation history
+
+**Powered by:** Gemini 2.5 Flash
         """)
 
 # ============ MAIN CONTENT ============
@@ -497,11 +565,17 @@ if len(st.session_state.messages) == 0:
     # Show data status in header
     data_status = []
     if st.session_state.initialized:
-        data_status.append(f"📄 {len(st.session_state.paper_names)} papers")
-    if st.session_state.uploaded_df is not None:
+        data_status.append(f"📄 {len(st.session_state.paper_names)} papers (full text)")
+    if st.session_state.preloaded_excel_df is not None:
         data_status.append(f"📊 Excel data loaded")
     
     status_text = " • ".join(data_status) if data_status else "Configure API key to start"
+    
+    token_info = ""
+    if st.session_state.context_stats:
+        total = st.session_state.context_stats.get("papers_tokens", 0) + \
+                st.session_state.context_stats.get("excel_tokens", 0)
+        token_info = f"~{total:,} tokens in context"
     
     st.markdown(f"""
         <div class="main-header">
@@ -510,10 +584,13 @@ if len(st.session_state.messages) == 0:
                 SAFI Research Intelligence
             </h1>
             <p style='color: #4a6b4a; font-size: 1rem; margin-top: 0.5rem;'>
-                Ask about SAFI research
+                Full Context Mode - Complete Paper Access
             </p>
             <p style='color: #6a8a6a; font-size: 0.85rem; margin-top: 0.25rem;'>
                 {status_text}
+            </p>
+            <p style='color: #8a9a8a; font-size: 0.75rem; margin-top: 0.25rem;'>
+                {token_info}
             </p>
         </div>
     """, unsafe_allow_html=True)
@@ -545,17 +622,18 @@ for msg in st.session_state.messages:
         """, unsafe_allow_html=True)
 
 # Chat input
-if prompt := st.chat_input("Ask about SAFI research or uploaded data..."):
+if prompt := st.chat_input("Ask about SAFI research (full paper access)..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    with st.spinner("Analyzing..."):
+    with st.spinner("Analyzing with full context..."):
         response, sources = generate_response(
             prompt,
-            st.session_state.summaries_context,
+            st.session_state.full_papers_context,
             st.session_state.chunks,
             st.session_state.embeddings,
             st.session_state.metadata,
-            st.session_state.excel_context,
+            st.session_state.preloaded_excel_context,
+            st.session_state.uploaded_excel_context,
             st.session_state.messages
         )
     
