@@ -28,9 +28,9 @@ PRELOADED_EXCEL_SHEET = "Fiber morphology"      # Sheet name to load
 # Embeddings file
 EMBEDDINGS_FILE = "safi_embeddings.pkl"
 
-# Model settings - using Gemini 3 pro with 1M context
-MODEL_NAME = "gemini-3-pro"
-EMBEDDING_MODEL = "gemini-embedding-001"
+# Model settings - using Gemini 2.5 flash with 1M context
+MODEL_NAME = "gemini-2.5-flash"
+EMBEDDING_MODEL = "models/text-embedding-004"
 
 # Context settings
 MAX_PAPER_CHARS = 50000  # Max characters per paper (adjust based on your needs)
