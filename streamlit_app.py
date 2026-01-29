@@ -419,7 +419,7 @@ with st.sidebar:
 st.markdown("""
     <div class="main-header">
         <h1 style='font-size: 2.5rem;'>🎍 SAFI Research Intelligence</h1>
-        <p style='color: #4a6b4a;'>Powered by Gemini 3 Flash</p>
+        <p style='color: #4a6b4a;'>Powered by Gemini 3
     </div>
 """, unsafe_allow_html=True)
 
