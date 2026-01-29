@@ -28,7 +28,7 @@ EMBEDDINGS_FILE = "data/safi_embeddings.pkl"
 
 # MODELS UPDATED: Gemini 3.0 Family
 # Gemini 3 Flash is optimized for speed and high reasoning
-MODEL_NAME = "gemini-3-flash" 
+MODEL_NAME = "gemini-3-flash-preview" 
 # This embedding model requires specific "task_types" (implemented below)
 EMBEDDING_MODEL = "models/gemini-embedding-001" 
 
