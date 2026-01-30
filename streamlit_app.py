@@ -221,7 +221,10 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
         {excel_data}
         
         QUESTION: {prompt}
-        
+
+        INSTRUCTIONS:
+        - If the user asks for a comparison, YOU MUST USE A MARKDOWN TABLE.
+        - Cite the paper names when possible.
         Please answer based on the context above. Cite the paper names when possible."""
 
         # D. Stream Response with Text Extraction
