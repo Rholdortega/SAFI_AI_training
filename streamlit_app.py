@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Gemini 3.0 Final Stable
+SAFI Research Intelligence - Gemini 3.0 (No Avatars)
 Updated: January 2026
 """
 import streamlit as st
@@ -23,12 +23,14 @@ PRELOADED_EXCEL_SHEET = "Fiber morphology"
 EMBEDDINGS_FILE = "data/safi_embeddings.pkl"
 EMBEDDING_MODEL = "models/gemini-embedding-001" 
 
-# ============ STYLING ============
+# ============ STYLING (CSS FIX FOR AVATARS) ============
 st.markdown("""
     <style>
     .main { background-color: #f0f5f0; }
     [data-testid="stSidebar"] { background-color: #e8f0e8; }
     .main-header { text-align: center; padding: 2rem 0; margin-bottom: 1rem; }
+    
+    /* Source Box Styling */
     .sources-box {
         background-color: #f8faf8;
         border-left: 3px solid #4a6b4a;
@@ -37,8 +39,11 @@ st.markdown("""
         font-size: 0.85rem;
         color: #5a7a5a;
     }
-    /* Hide default Streamlit avatars if desired for a cleaner look */
-    .stChatMessageAvatarCustom { display: none; }
+    
+    /* --- CSS TO HIDE AVATARS --- */
+    [data-testid="stChatMessageAvatar"] {
+        display: none !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -56,7 +61,6 @@ else:
 # ============ DATA LOADING (Cached) ============
 @st.cache_data
 def load_data(file_path):
-    """Loads the PKL file containing the 'Brain' of the chatbot."""
     if not os.path.exists(file_path):
         return [], [], [], {}
     
@@ -67,7 +71,6 @@ def load_data(file_path):
     embeddings = data["embeddings"]
     metadata = data["chunk_metadata"]
     
-    # Reconstruct full papers from chunks
     papers = {}
     for chunk, meta in zip(chunks, metadata):
         src = meta.get('source', 'Unknown')
@@ -80,7 +83,6 @@ def load_data(file_path):
 
 @st.cache_data
 def load_excel(file_path, sheet):
-    """Loads the Excel data for specific lookups."""
     if not os.path.exists(file_path):
         return ""
     try:
@@ -94,7 +96,6 @@ with st.sidebar:
     st.title("🎍 SAFI AI")
     st.markdown("---")
     
-    # 1. THE MODE TOGGLE
     st.markdown("### ⚙️ Response Mode")
     mode = st.radio(
         "Choose Engine:",
@@ -102,18 +103,17 @@ with st.sidebar:
         captions=["Instant answers (Flash)", "Deep reasoning (Pro)"]
     )
     
-    # 2. Dynamic Configuration
     if mode == "🚀 Fast Mode":
         current_model_name = "gemini-3-flash-preview"
         current_config = {
-            "temperature": 0.1,         # Low temp = fast & precise
-            "max_output_tokens": 2000   # Increased to allow for tables
+            "temperature": 0.1,
+            "max_output_tokens": 2000
         }
     else:
         current_model_name = "gemini-3-pro-preview"
         current_config = {
-            "temperature": 0.4,         # Higher temp = creative/reasoning
-            "max_output_tokens": 4000   # Allows detailed explanations
+            "temperature": 0.4,
+            "max_output_tokens": 4000
         }
         
     st.caption(f"Active Model: {current_model_name}")
@@ -123,7 +123,7 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-# Initialize the Model
+# Initialize Model
 if GEMINI_API_KEY:
     try:
         model = genai.GenerativeModel(
@@ -151,10 +151,9 @@ if "messages" not in st.session_state:
 # ============ MAIN CHAT INTERFACE ============
 st.markdown("<div class='main-header'><h1>🎍 SAFI Research Intelligence</h1></div>", unsafe_allow_html=True)
 
-# 1. Display History (No Icons)
+# 1. Display History (Forced No Avatars)
 for msg in st.session_state.messages:
-    # avatar=None removes the default icons
-    with st.chat_message(msg["role"], avatar=None):
+    with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if "sources" in msg and msg["sources"]:
             source_text = " • ".join(msg["sources"])
@@ -163,13 +162,11 @@ for msg in st.session_state.messages:
 # 2. Chat Input
 if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specific papers..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    # Display User Message (No Icon)
-    with st.chat_message("user", avatar=None):
+    with st.chat_message("user"):
         st.markdown(prompt)
 
     # 3. Generate Answer
-    with st.chat_message("assistant", avatar=None):
+    with st.chat_message("assistant"):
         # A. Retrieval
         if st.session_state.embeddings:
             try:
@@ -177,12 +174,10 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
                 query_embedding = np.array(res["embedding"])
                 embeddings_array = np.array(st.session_state.embeddings)
                 
-                # Cosine Similarity
                 dot_products = np.dot(embeddings_array, query_embedding)
                 norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
                 similarities = dot_products / norms
                 
-                # Top Matches
                 top_indices = np.argsort(similarities)[-6:][::-1]
                 relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
                 
@@ -232,7 +227,6 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
             if model:
                 stream = model.generate_content(final_prompt, stream=True)
                 
-                # Clean text extractor
                 def stream_parser(stream):
                     for chunk in stream:
                         try:
