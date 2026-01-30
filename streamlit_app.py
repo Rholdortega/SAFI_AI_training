@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Gemini 3.0 (No Avatars)
+SAFI Research Intelligence - Gemini 3.0 (No Icons Fixed)
 Updated: January 2026
 """
 import streamlit as st
@@ -23,7 +23,7 @@ PRELOADED_EXCEL_SHEET = "Fiber morphology"
 EMBEDDINGS_FILE = "data/safi_embeddings.pkl"
 EMBEDDING_MODEL = "models/gemini-embedding-001" 
 
-# ============ STYLING (CSS FIX FOR AVATARS) ============
+# ============ STYLING (ROBUST ICON HIDING) ============
 st.markdown("""
     <style>
     .main { background-color: #f0f5f0; }
@@ -40,9 +40,24 @@ st.markdown("""
         color: #5a7a5a;
     }
     
-    /* --- CSS TO HIDE AVATARS --- */
+    /* --- CSS TO FORCE HIDE AVATARS --- */
+    /* 1. Hide the container */
     [data-testid="stChatMessageAvatar"] {
         display: none !important;
+        width: 0px !important;
+        margin: 0px !important;
+    }
+    
+    /* 2. Remove the gap in the message row */
+    [data-testid="stChatMessage"] {
+        gap: 0px !important;
+        padding-left: 0px !important;
+    }
+    
+    /* 3. Ensure content aligns left */
+    [data-testid="stChatMessageContent"] {
+        margin-left: 0px !important;
+        border-left: none !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -151,7 +166,7 @@ if "messages" not in st.session_state:
 # ============ MAIN CHAT INTERFACE ============
 st.markdown("<div class='main-header'><h1>🎍 SAFI Research Intelligence</h1></div>", unsafe_allow_html=True)
 
-# 1. Display History (Forced No Avatars)
+# 1. Display History (No Icons)
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -162,6 +177,8 @@ for msg in st.session_state.messages:
 # 2. Chat Input
 if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specific papers..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    # Display User Message
     with st.chat_message("user"):
         st.markdown(prompt)
 
