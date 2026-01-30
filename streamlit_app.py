@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Gemini 3.0 Dual Mode
+SAFI Research Intelligence - Gemini 3.0 Dual Mode (FIXED)
 Updated: January 2026
 """
 import streamlit as st
@@ -102,17 +102,18 @@ with st.sidebar:
     )
     
     # 2. Dynamic Configuration based on Toggle
+    # FIXED: Removed 'thinking_level' parameter which caused the error
     if mode == "🚀 Fast Mode":
         current_model_name = "gemini-3-flash-preview"
         current_config = {
-            "thinking_level": "minimal", # No pausing, just answering
-            "temperature": 0.1
+            "temperature": 0.1,         # Low temp = more deterministic & fast
+            "max_output_tokens": 1000   # Limits response length for speed
         }
     else:
         current_model_name = "gemini-3-pro-preview"
         current_config = {
-            "thinking_level": "high",   # Pauses to reason deeply
-            "temperature": 0.4
+            "temperature": 0.4,         # Higher temp = more creative/reasoning
+            "max_output_tokens": 4000   # Allows long, detailed explanations
         }
         
     st.caption(f"Active Model: {current_model_name}")
@@ -124,10 +125,14 @@ with st.sidebar:
 
 # Initialize the Model with the selected config
 if GEMINI_API_KEY:
-    model = genai.GenerativeModel(
-        model_name=current_model_name,
-        generation_config=current_config
-    )
+    try:
+        model = genai.GenerativeModel(
+            model_name=current_model_name,
+            generation_config=current_config
+        )
+    except Exception as e:
+        st.error(f"Error initializing model: {e}")
+        model = None
 
 # ============ APP INITIALIZATION ============
 if "initialized" not in st.session_state:
@@ -155,7 +160,6 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if "sources" in msg and msg["sources"]:
-            # Small footer for sources in history
             source_text = " • ".join(msg["sources"])
             st.markdown(f"<div style='font-size:0.8em; color:#666;'>📚 Sources: {source_text}</div>", unsafe_allow_html=True)
 
@@ -170,24 +174,29 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
     with st.chat_message("assistant"):
         # A. Retrieval (Find relevant paper sections)
         if st.session_state.embeddings:
-            # Create Query Embedding
-            res = genai.embed_content(model=EMBEDDING_MODEL, content=prompt, task_type="retrieval_query")
-            query_embedding = np.array(res["embedding"])
-            
-            # Cosine Similarity
-            embeddings_array = np.array(st.session_state.embeddings)
-            dot_products = np.dot(embeddings_array, query_embedding)
-            norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
-            similarities = dot_products / norms
-            
-            # Get Top 6 Matches
-            top_indices = np.argsort(similarities)[-6:][::-1]
-            # Filter for relevance (>0.35)
-            relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
-            
-            # Extract Content
-            retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
-            sources = list(set([st.session_state.metadata[i].get('source', 'Unknown') for i in relevant_indices]))
+            try:
+                # Create Query Embedding
+                res = genai.embed_content(model=EMBEDDING_MODEL, content=prompt, task_type="retrieval_query")
+                query_embedding = np.array(res["embedding"])
+                
+                # Cosine Similarity
+                embeddings_array = np.array(st.session_state.embeddings)
+                dot_products = np.dot(embeddings_array, query_embedding)
+                norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
+                similarities = dot_products / norms
+                
+                # Get Top 6 Matches
+                top_indices = np.argsort(similarities)[-6:][::-1]
+                # Filter for relevance (>0.35)
+                relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
+                
+                # Extract Content
+                retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
+                sources = list(set([st.session_state.metadata[i].get('source', 'Unknown') for i in relevant_indices]))
+            except Exception as e:
+                st.error(f"Retrieval Error: {e}")
+                retrieved_text = ""
+                sources = []
         else:
             retrieved_text = ""
             sources = []
@@ -218,21 +227,23 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
         Please answer based on the context above. Cite the paper names when possible."""
 
         # D. Stream Response
-        # stream=True enables the typewriter effect without showing timestamps
         try:
-            stream = model.generate_content(final_prompt, stream=True)
-            full_response = st.write_stream(stream)
-            
-            # E. Show Sources
-            if sources:
-                st.markdown(f"<div class='sources-box'><strong>Sources used:</strong><br>{' • '.join(sources)}</div>", unsafe_allow_html=True)
-            
-            # F. Save to History
-            st.session_state.messages.append({
-                "role": "assistant", 
-                "content": full_response, 
-                "sources": sources
-            })
+            if model:
+                stream = model.generate_content(final_prompt, stream=True)
+                full_response = st.write_stream(stream)
+                
+                # E. Show Sources
+                if sources:
+                    st.markdown(f"<div class='sources-box'><strong>Sources used:</strong><br>{' • '.join(sources)}</div>", unsafe_allow_html=True)
+                
+                # F. Save to History
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": full_response, 
+                    "sources": sources
+                })
+            else:
+                st.error("Model not initialized. Check API Key.")
             
         except Exception as e:
-            st.error(f"An error occurred: {str(e)}")
+            st.error(f"Generation Error: {str(e)}")
