@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Gemini 3.0 (Smart Table Fix)
+SAFI Research Intelligence - Gemini 3.0 Final Stable
 Updated: January 2026
 """
 import streamlit as st
@@ -18,7 +18,6 @@ st.set_page_config(
 )
 
 # ============ FILE PATHS ============
-# Ensure these match your GitHub folder structure exactly
 PRELOADED_EXCEL_FILE = "data/FQA_Compilation.xlsx"
 PRELOADED_EXCEL_SHEET = "Fiber morphology"
 EMBEDDINGS_FILE = "data/safi_embeddings.pkl"
@@ -38,6 +37,8 @@ st.markdown("""
         font-size: 0.85rem;
         color: #5a7a5a;
     }
+    /* Hide default Streamlit avatars if desired for a cleaner look */
+    .stChatMessageAvatarCustom { display: none; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -135,26 +136,13 @@ if GEMINI_API_KEY:
 
 # ============ APP INITIALIZATION ============
 if "initialized" not in st.session_state:
-    # We use st.status to create a "growing" loading animation
-    with st.status("🌱 Planting SAFI Knowledge Base...", expanded=True) as status:
-        
-        # Step 1: Seedling Stage
-        st.write("Reading research papers...")
+    with st.spinner("Initializing Knowledge Base..."):
         chunks, embs, meta, papers = load_data(EMBEDDINGS_FILE)
-        
-        # Step 2: Sapling Stage (Update Icon)
-        status.update(label="🌿 Growing Knowledge Structure...", state="running")
-        st.write("Rooting Excel data...")
         st.session_state.chunks = chunks
         st.session_state.embeddings = embs
         st.session_state.metadata = meta
         st.session_state.full_papers_context = "=== PAPERS ===\n" + "\n".join(papers.values())
-        
-        # Step 3: Full Tree Stage (Final Data Load)
         st.session_state.excel_context = load_excel(PRELOADED_EXCEL_FILE, PRELOADED_EXCEL_SHEET)
-        
-        # Final Completion
-        status.update(label="🌳 SAFI Research Ready!", state="complete", expanded=False)
         st.session_state.initialized = True
 
 if "messages" not in st.session_state:
@@ -163,9 +151,10 @@ if "messages" not in st.session_state:
 # ============ MAIN CHAT INTERFACE ============
 st.markdown("<div class='main-header'><h1>🎍 SAFI Research Intelligence</h1></div>", unsafe_allow_html=True)
 
-# 1. Display History
+# 1. Display History (No Icons)
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    # avatar=None removes the default icons
+    with st.chat_message(msg["role"], avatar=None):
         st.markdown(msg["content"])
         if "sources" in msg and msg["sources"]:
             source_text = " • ".join(msg["sources"])
@@ -174,11 +163,13 @@ for msg in st.session_state.messages:
 # 2. Chat Input
 if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specific papers..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
+    
+    # Display User Message (No Icon)
+    with st.chat_message("user", avatar=None):
         st.markdown(prompt)
 
     # 3. Generate Answer
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=None):
         # A. Retrieval
         if st.session_state.embeddings:
             try:
@@ -214,7 +205,6 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
             excel_data = ""
 
         # --- SMART TABLE LOGIC ---
-        # Detect if user wants a table and force the instructions
         table_keywords = ["table", "compare", "comparison", "list", "vs", "versus"]
         force_table_instruction = ""
         if any(kw in prompt.lower() for kw in table_keywords):
