@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Gemini 3.0 Final Stable
+SAFI Research Intelligence - Gemini 3.0 (Smart Table Fix)
 Updated: January 2026
 """
 import streamlit as st
@@ -18,6 +18,7 @@ st.set_page_config(
 )
 
 # ============ FILE PATHS ============
+# Ensure these match your GitHub folder structure exactly
 PRELOADED_EXCEL_FILE = "data/FQA_Compilation.xlsx"
 PRELOADED_EXCEL_SHEET = "Fiber morphology"
 EMBEDDINGS_FILE = "data/safi_embeddings.pkl"
@@ -105,7 +106,7 @@ with st.sidebar:
         current_model_name = "gemini-3-flash-preview"
         current_config = {
             "temperature": 0.1,         # Low temp = fast & precise
-            "max_output_tokens": 1000   # Limits response length for speed
+            "max_output_tokens": 2000   # Increased to allow for tables
         }
     else:
         current_model_name = "gemini-3-pro-preview"
@@ -135,16 +136,12 @@ if GEMINI_API_KEY:
 # ============ APP INITIALIZATION ============
 if "initialized" not in st.session_state:
     with st.spinner("Initializing Knowledge Base..."):
-        # Load PKL
         chunks, embs, meta, papers = load_data(EMBEDDINGS_FILE)
         st.session_state.chunks = chunks
         st.session_state.embeddings = embs
         st.session_state.metadata = meta
         st.session_state.full_papers_context = "=== PAPERS ===\n" + "\n".join(papers.values())
-        
-        # Load Excel
         st.session_state.excel_context = load_excel(PRELOADED_EXCEL_FILE, PRELOADED_EXCEL_SHEET)
-        
         st.session_state.initialized = True
 
 if "messages" not in st.session_state:
@@ -163,43 +160,38 @@ for msg in st.session_state.messages:
 
 # 2. Chat Input
 if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specific papers..."):
-    # Add user message to history
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     # 3. Generate Answer
     with st.chat_message("assistant"):
-        # A. Retrieval (Find relevant paper sections)
+        # A. Retrieval
         if st.session_state.embeddings:
             try:
-                # Create Query Embedding
                 res = genai.embed_content(model=EMBEDDING_MODEL, content=prompt, task_type="retrieval_query")
                 query_embedding = np.array(res["embedding"])
+                embeddings_array = np.array(st.session_state.embeddings)
                 
                 # Cosine Similarity
-                embeddings_array = np.array(st.session_state.embeddings)
                 dot_products = np.dot(embeddings_array, query_embedding)
                 norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
                 similarities = dot_products / norms
                 
-                # Get Top 6 Matches
+                # Top Matches
                 top_indices = np.argsort(similarities)[-6:][::-1]
-                # Filter for relevance (>0.35)
                 relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
                 
-                # Extract Content
                 retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
                 sources = list(set([st.session_state.metadata[i].get('source', 'Unknown') for i in relevant_indices]))
-            except Exception as e:
-                # Fallback if embedding fails
+            except:
                 retrieved_text = ""
                 sources = []
         else:
             retrieved_text = ""
             sources = []
 
-        # B. Check Excel Relevance
+        # B. Check Excel
         excel_keywords = ['fiber', 'length', 'width', 'kappa', 'coarseness', 'morphology', 'pulp']
         if any(kw in prompt.lower() for kw in excel_keywords):
             excel_data = st.session_state.excel_context
@@ -207,6 +199,13 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
                 sources.append("Pre-loaded Excel Data")
         else:
             excel_data = ""
+
+        # --- SMART TABLE LOGIC ---
+        # Detect if user wants a table and force the instructions
+        table_keywords = ["table", "compare", "comparison", "list", "vs", "versus"]
+        force_table_instruction = ""
+        if any(kw in prompt.lower() for kw in table_keywords):
+             force_table_instruction = "\nIMPORTANT: The user has requested a comparison. YOU MUST FORMAT THE OUTPUT AS A MARKDOWN TABLE."
 
         # C. Build Prompt
         final_prompt = f"""You are the SAFI Research Assistant.
@@ -221,18 +220,16 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
         {excel_data}
         
         QUESTION: {prompt}
-
-        INSTRUCTIONS:
-        - If the user asks for a comparison, YOU MUST USE A MARKDOWN TABLE.
-        - Cite the paper names when possible.
+        {force_table_instruction}
+        
         Please answer based on the context above. Cite the paper names when possible."""
 
-        # D. Stream Response with Text Extraction
+        # D. Stream Response
         try:
             if model:
                 stream = model.generate_content(final_prompt, stream=True)
                 
-                # --- HELPER TO EXTRACT TEXT FROM OBJECTS ---
+                # Clean text extractor
                 def stream_parser(stream):
                     for chunk in stream:
                         try:
@@ -240,15 +237,12 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
                                 yield chunk.text
                         except:
                             pass
-                # -------------------------------------------
                 
                 full_response = st.write_stream(stream_parser(stream))
                 
-                # E. Show Sources
                 if sources:
                     st.markdown(f"<div class='sources-box'><strong>Sources used:</strong><br>{' • '.join(sources)}</div>", unsafe_allow_html=True)
                 
-                # F. Save to History
                 st.session_state.messages.append({
                     "role": "assistant", 
                     "content": full_response, 
