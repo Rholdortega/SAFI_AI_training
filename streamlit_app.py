@@ -135,13 +135,26 @@ if GEMINI_API_KEY:
 
 # ============ APP INITIALIZATION ============
 if "initialized" not in st.session_state:
-    with st.spinner("Initializing Knowledge Base..."):
+    # We use st.status to create a "growing" loading animation
+    with st.status("🌱 Planting SAFI Knowledge Base...", expanded=True) as status:
+        
+        # Step 1: Seedling Stage
+        st.write("Reading research papers...")
         chunks, embs, meta, papers = load_data(EMBEDDINGS_FILE)
+        
+        # Step 2: Sapling Stage (Update Icon)
+        status.update(label="🌿 Growing Knowledge Structure...", state="running")
+        st.write("Rooting Excel data...")
         st.session_state.chunks = chunks
         st.session_state.embeddings = embs
         st.session_state.metadata = meta
         st.session_state.full_papers_context = "=== PAPERS ===\n" + "\n".join(papers.values())
+        
+        # Step 3: Full Tree Stage (Final Data Load)
         st.session_state.excel_context = load_excel(PRELOADED_EXCEL_FILE, PRELOADED_EXCEL_SHEET)
+        
+        # Final Completion
+        status.update(label="🌳 SAFI Research Ready!", state="complete", expanded=False)
         st.session_state.initialized = True
 
 if "messages" not in st.session_state:
