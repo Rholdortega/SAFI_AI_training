@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Gemini 3.0 (No Icons Fixed)
+SAFI Research Intelligence - Gemini 3.0 (No Icons - Custom HTML Fix)
 Updated: January 2026
 """
 import streamlit as st
@@ -23,12 +23,35 @@ PRELOADED_EXCEL_SHEET = "Fiber morphology"
 EMBEDDINGS_FILE = "data/safi_embeddings.pkl"
 EMBEDDING_MODEL = "models/gemini-embedding-001" 
 
-# ============ STYLING (ROBUST ICON HIDING) ============
+# ============ STYLING (CUSTOM BUBBLES) ============
 st.markdown("""
     <style>
     .main { background-color: #f0f5f0; }
     [data-testid="stSidebar"] { background-color: #e8f0e8; }
     .main-header { text-align: center; padding: 2rem 0; margin-bottom: 1rem; }
+    
+    /* User Message Bubble */
+    .user-message {
+        background-color: #e3f0e3;
+        padding: 1rem;
+        border-radius: 15px 15px 0px 15px; /* Rounded corners */
+        margin: 1rem 0;
+        margin-left: 20%; /* Push to right */
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        color: #1a1a1a;
+    }
+    
+    /* SAFI AI Message Bubble */
+    .assistant-message {
+        background-color: #ffffff;
+        padding: 1rem;
+        border-radius: 15px 15px 15px 0px; /* Rounded corners */
+        margin: 1rem 0;
+        margin-right: 20%; /* Push to left */
+        border: 1px solid #d0e0d0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        color: #1a1a1a;
+    }
     
     /* Source Box Styling */
     .sources-box {
@@ -38,26 +61,6 @@ st.markdown("""
         margin-top: 1rem;
         font-size: 0.85rem;
         color: #5a7a5a;
-    }
-    
-    /* --- CSS TO FORCE HIDE AVATARS --- */
-    /* 1. Hide the container */
-    [data-testid="stChatMessageAvatar"] {
-        display: none !important;
-        width: 0px !important;
-        margin: 0px !important;
-    }
-    
-    /* 2. Remove the gap in the message row */
-    [data-testid="stChatMessage"] {
-        gap: 0px !important;
-        padding-left: 0px !important;
-    }
-    
-    /* 3. Ensure content aligns left */
-    [data-testid="stChatMessageContent"] {
-        margin-left: 0px !important;
-        border-left: none !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -166,104 +169,121 @@ if "messages" not in st.session_state:
 # ============ MAIN CHAT INTERFACE ============
 st.markdown("<div class='main-header'><h1>🎍 SAFI Research Intelligence</h1></div>", unsafe_allow_html=True)
 
-# 1. Display History (No Icons)
+# 1. DISPLAY HISTORY (Using Custom HTML Divs - NO ICONS GUARANTEED)
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    if msg["role"] == "user":
+        st.markdown(f"""
+        <div class="user-message">
+            <b>You:</b><br>{msg['content']}
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Build source HTML if sources exist
+        source_html = ""
         if "sources" in msg and msg["sources"]:
-            source_text = " • ".join(msg["sources"])
-            st.markdown(f"<div style='font-size:0.8em; color:#666;'>📚 Sources: {source_text}</div>", unsafe_allow_html=True)
-
-# 2. Chat Input
-if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specific papers..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    # Display User Message
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # 3. Generate Answer
-    with st.chat_message("assistant"):
-        # A. Retrieval
-        if st.session_state.embeddings:
-            try:
-                res = genai.embed_content(model=EMBEDDING_MODEL, content=prompt, task_type="retrieval_query")
-                query_embedding = np.array(res["embedding"])
-                embeddings_array = np.array(st.session_state.embeddings)
-                
-                dot_products = np.dot(embeddings_array, query_embedding)
-                norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
-                similarities = dot_products / norms
-                
-                top_indices = np.argsort(similarities)[-6:][::-1]
-                relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
-                
-                retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
-                sources = list(set([st.session_state.metadata[i].get('source', 'Unknown') for i in relevant_indices]))
-            except:
-                retrieved_text = ""
-                sources = []
-        else:
-            retrieved_text = ""
-            sources = []
-
-        # B. Check Excel
-        excel_keywords = ['fiber', 'length', 'width', 'kappa', 'coarseness', 'morphology', 'pulp']
-        if any(kw in prompt.lower() for kw in excel_keywords):
-            excel_data = st.session_state.excel_context
-            if "Pre-loaded Excel Data" not in sources:
-                sources.append("Pre-loaded Excel Data")
-        else:
-            excel_data = ""
-
-        # --- SMART TABLE LOGIC ---
-        table_keywords = ["table", "compare", "comparison", "list", "vs", "versus"]
-        force_table_instruction = ""
-        if any(kw in prompt.lower() for kw in table_keywords):
-             force_table_instruction = "\nIMPORTANT: The user has requested a comparison. YOU MUST FORMAT THE OUTPUT AS A MARKDOWN TABLE."
-
-        # C. Build Prompt
-        final_prompt = f"""You are the SAFI Research Assistant.
-        
-        CONTEXT FROM PAPERS:
-        {st.session_state.full_papers_context[:300000]} 
-        
-        SPECIFIC HIGHLIGHTS:
-        {retrieved_text}
-        
-        EXCEL DATA:
-        {excel_data}
-        
-        QUESTION: {prompt}
-        {force_table_instruction}
-        
-        Please answer based on the context above. Cite the paper names when possible."""
-
-        # D. Stream Response
-        try:
-            if model:
-                stream = model.generate_content(final_prompt, stream=True)
-                
-                def stream_parser(stream):
-                    for chunk in stream:
-                        try:
-                            if chunk.text:
-                                yield chunk.text
-                        except:
-                            pass
-                
-                full_response = st.write_stream(stream_parser(stream))
-                
-                if sources:
-                    st.markdown(f"<div class='sources-box'><strong>Sources used:</strong><br>{' • '.join(sources)}</div>", unsafe_allow_html=True)
-                
-                st.session_state.messages.append({
-                    "role": "assistant", 
-                    "content": full_response, 
-                    "sources": sources
-                })
-            else:
-                st.error("Model not initialized. Check API Key.")
+            s_list = " • ".join(msg["sources"])
+            source_html = f"<div class='sources-box'><strong>Sources:</strong><br>{s_list}</div>"
             
-        except Exception as e:
-            st.error(f"Generation Error: {str(e)}")
+        st.markdown(f"""
+        <div class="assistant-message">
+            <b>SAFI AI:</b><br>{msg['content']}
+            {source_html}
+        </div>
+        """, unsafe_allow_html=True)
+
+# 2. CHAT INPUT
+if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specific papers..."):
+    # Save & Show User Message immediately
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.markdown(f"""
+    <div class="user-message">
+        <b>You:</b><br>{prompt}
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 3. GENERATE ANSWER
+    # We use an empty placeholder to stream content into our custom HTML div
+    response_placeholder = st.empty()
+    full_response = ""
+    sources = []
+
+    # A. Retrieval Logic
+    retrieved_text = ""
+    if st.session_state.embeddings:
+        try:
+            res = genai.embed_content(model=EMBEDDING_MODEL, content=prompt, task_type="retrieval_query")
+            query_embedding = np.array(res["embedding"])
+            embeddings_array = np.array(st.session_state.embeddings)
+            
+            dot_products = np.dot(embeddings_array, query_embedding)
+            norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
+            similarities = dot_products / norms
+            
+            top_indices = np.argsort(similarities)[-6:][::-1]
+            relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
+            
+            retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
+            sources = list(set([st.session_state.metadata[i].get('source', 'Unknown') for i in relevant_indices]))
+        except:
+            pass
+
+    # B. Excel Logic
+    excel_data = ""
+    excel_keywords = ['fiber', 'length', 'width', 'kappa', 'coarseness', 'morphology', 'pulp']
+    if any(kw in prompt.lower() for kw in excel_keywords):
+        excel_data = st.session_state.excel_context
+        if "Pre-loaded Excel Data" not in sources:
+            sources.append("Pre-loaded Excel Data")
+
+    # Smart Table Instruction
+    force_table = ""
+    if any(w in prompt.lower() for w in ["table", "compare", "vs", "list"]):
+        force_table = "\nIMPORTANT: The user wants a comparison. FORMAT AS A MARKDOWN TABLE."
+
+    # C. Build Prompt
+    final_prompt = f"""You are the SAFI Research Assistant.
+    CONTEXT: {st.session_state.full_papers_context[:300000]}
+    HIGHLIGHTS: {retrieved_text}
+    EXCEL: {excel_data}
+    QUESTION: {prompt}
+    {force_table}
+    Answer based on context. Cite papers."""
+
+    # D. Stream Response into Custom Div
+    try:
+        if model:
+            stream = model.generate_content(final_prompt, stream=True)
+            
+            for chunk in stream:
+                if chunk.text:
+                    full_response += chunk.text
+                    # Update placeholder with new HTML frame every time text arrives
+                    response_placeholder.markdown(f"""
+                    <div class="assistant-message">
+                        <b>SAFI AI:</b><br>{full_response}
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Final Update with Sources attached
+            source_html = ""
+            if sources:
+                s_text = " • ".join(sources)
+                source_html = f"<div class='sources-box'><strong>Sources:</strong><br>{s_text}</div>"
+            
+            response_placeholder.markdown(f"""
+            <div class="assistant-message">
+                <b>SAFI AI:</b><br>{full_response}
+                {source_html}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": full_response, 
+                "sources": sources
+            })
+        else:
+            st.error("Model Error")
+            
+    except Exception as e:
+        st.error(f"Error: {e}")
