@@ -1,10 +1,9 @@
 """
-SAFI Research Intelligence - Gemini 3.0 Dual Mode (FIXED)
+SAFI Research Intelligence - Gemini 3.0 Final Stable
 Updated: January 2026
 """
 import streamlit as st
 import google.generativeai as genai
-from typing import List, Tuple, Dict
 import numpy as np
 import os
 import pickle
@@ -101,19 +100,18 @@ with st.sidebar:
         captions=["Instant answers (Flash)", "Deep reasoning (Pro)"]
     )
     
-    # 2. Dynamic Configuration based on Toggle
-    # FIXED: Removed 'thinking_level' parameter which caused the error
+    # 2. Dynamic Configuration
     if mode == "🚀 Fast Mode":
         current_model_name = "gemini-3-flash-preview"
         current_config = {
-            "temperature": 0.1,         # Low temp = more deterministic & fast
+            "temperature": 0.1,         # Low temp = fast & precise
             "max_output_tokens": 1000   # Limits response length for speed
         }
     else:
         current_model_name = "gemini-3-pro-preview"
         current_config = {
-            "temperature": 0.4,         # Higher temp = more creative/reasoning
-            "max_output_tokens": 4000   # Allows long, detailed explanations
+            "temperature": 0.4,         # Higher temp = creative/reasoning
+            "max_output_tokens": 4000   # Allows detailed explanations
         }
         
     st.caption(f"Active Model: {current_model_name}")
@@ -123,7 +121,7 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-# Initialize the Model with the selected config
+# Initialize the Model
 if GEMINI_API_KEY:
     try:
         model = genai.GenerativeModel(
@@ -194,7 +192,7 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
                 retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
                 sources = list(set([st.session_state.metadata[i].get('source', 'Unknown') for i in relevant_indices]))
             except Exception as e:
-                st.error(f"Retrieval Error: {e}")
+                # Fallback if embedding fails
                 retrieved_text = ""
                 sources = []
         else:
@@ -226,11 +224,22 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
         
         Please answer based on the context above. Cite the paper names when possible."""
 
-        # D. Stream Response
+        # D. Stream Response with Text Extraction
         try:
             if model:
                 stream = model.generate_content(final_prompt, stream=True)
-                full_response = st.write_stream(stream)
+                
+                # --- HELPER TO EXTRACT TEXT FROM OBJECTS ---
+                def stream_parser(stream):
+                    for chunk in stream:
+                        try:
+                            if chunk.text:
+                                yield chunk.text
+                        except:
+                            pass
+                # -------------------------------------------
+                
+                full_response = st.write_stream(stream_parser(stream))
                 
                 # E. Show Sources
                 if sources:
