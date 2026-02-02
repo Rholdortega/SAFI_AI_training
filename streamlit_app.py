@@ -1,5 +1,5 @@
 """
-SAFI Research Intelligence - Gemini 3.0 (No Icons - Custom HTML Fix)
+SAFI Research Intelligence - Gemini 3.0 (Strict Focus Mode)
 Updated: January 2026
 """
 import streamlit as st
@@ -146,25 +146,27 @@ with st.sidebar:
 
     # ============ FILE UPLOADER ============
     st.markdown("### 📂 Upload Data")
-    uploaded_file = st.file_uploader("Add context (PDF/Excel)", type=['pdf', 'xlsx'])
+    uploaded_file = st.file_uploader("Focus on single file (PDF/Excel)", type=['pdf', 'xlsx'])
     
     uploaded_text_content = ""
+    uploaded_filename = ""
     
     if uploaded_file:
+        uploaded_filename = uploaded_file.name
         try:
             if uploaded_file.name.endswith(".pdf"):
                 if pypdf:
                     reader = pypdf.PdfReader(uploaded_file)
                     for page in reader.pages:
                         uploaded_text_content += page.extract_text() or ""
-                    st.success("PDF Loaded!")
+                    st.success(f"Focused on: {uploaded_file.name}")
                 else:
                     st.error("Please install `pypdf` to process PDFs.")
             
             elif uploaded_file.name.endswith(".xlsx"):
                 df_upload = pd.read_excel(uploaded_file)
                 uploaded_text_content = df_upload.to_string()
-                st.success("Excel Loaded!")
+                st.success(f"Focused on: {uploaded_file.name}")
                 
         except Exception as e:
             st.error(f"Error reading file: {e}")
@@ -214,7 +216,7 @@ if "messages" not in st.session_state:
 # ============ MAIN CHAT INTERFACE ============
 st.markdown("<div class='main-header'><h1>🎍 SAFI Research Intelligence</h1></div>", unsafe_allow_html=True)
 
-# 1. DISPLAY HISTORY (Using Custom HTML Divs)
+# 1. DISPLAY HISTORY
 for msg in st.session_state.messages:
     if msg["role"] == "user":
         st.markdown(f"""
@@ -237,7 +239,7 @@ for msg in st.session_state.messages:
         """, unsafe_allow_html=True)
 
 # 2. CHAT INPUT
-if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specific papers..."):
+if prompt := st.chat_input("Ask about your documents..."):
     # Save & Show User Message immediately
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.markdown(f"""
@@ -250,40 +252,62 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
     response_placeholder = st.empty()
     full_response = ""
     sources = []
-
-    # A. Retrieval Logic
-    retrieved_text = ""
-    if st.session_state.embeddings:
-        try:
-            res = genai.embed_content(model=EMBEDDING_MODEL, content=prompt, task_type="retrieval_query")
-            query_embedding = np.array(res["embedding"])
-            embeddings_array = np.array(st.session_state.embeddings)
-            
-            dot_products = np.dot(embeddings_array, query_embedding)
-            norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
-            similarities = dot_products / norms
-            
-            top_indices = np.argsort(similarities)[-6:][::-1]
-            relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
-            
-            retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
-            sources = list(set([st.session_state.metadata[i].get('source', 'Unknown') for i in relevant_indices]))
-        except:
-            pass
-
-    # B. Excel Logic
-    excel_data = ""
-    excel_keywords = ['fiber', 'length', 'width', 'kappa', 'coarseness', 'morphology', 'pulp']
-    if any(kw in prompt.lower() for kw in excel_keywords):
-        excel_data = st.session_state.excel_context
-        if "Pre-loaded Excel Data" not in sources:
-            sources.append("Pre-loaded Excel Data")
-
-    # C. Handle Uploaded Data Source
-    user_uploaded_context = ""
+    
+    # ==========================================
+    # LOGIC SWITCH: UPLOADED FILE VS DATABASE
+    # ==========================================
+    
+    final_context = ""
+    
     if uploaded_text_content:
-        user_uploaded_context = f"=== USER UPLOADED FILE ===\n{uploaded_text_content}\n"
-        sources.append("Uploaded File")
+        # --- PATH A: FOCUSED MODE (Uploaded File Only) ---
+        # We explicitly IGNORE the knowledge base and excel here.
+        final_context = f"=== USER UPLOADED FILE (STRICT FOCUS) ===\n{uploaded_text_content}\n"
+        sources.append(f"Uploaded: {uploaded_filename}")
+        
+        # Display a visual indicator that we are in focus mode
+        st.info(f"🔍 Focus Mode: Answering ONLY from '{uploaded_filename}'")
+        
+        # Disable retrieval vars to ensure no pollution
+        retrieved_text = ""
+        excel_data = ""
+        
+    else:
+        # --- PATH B: STANDARD MODE (Knowledge Base) ---
+        # 1. Retrieval
+        retrieved_text = ""
+        if st.session_state.embeddings:
+            try:
+                res = genai.embed_content(model=EMBEDDING_MODEL, content=prompt, task_type="retrieval_query")
+                query_embedding = np.array(res["embedding"])
+                embeddings_array = np.array(st.session_state.embeddings)
+                
+                dot_products = np.dot(embeddings_array, query_embedding)
+                norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
+                similarities = dot_products / norms
+                
+                top_indices = np.argsort(similarities)[-6:][::-1]
+                relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
+                
+                retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
+                sources = list(set([st.session_state.metadata[i].get('source', 'Unknown') for i in relevant_indices]))
+            except:
+                pass
+
+        # 2. Excel
+        excel_data = ""
+        excel_keywords = ['fiber', 'length', 'width', 'kappa', 'coarseness', 'morphology', 'pulp']
+        if any(kw in prompt.lower() for kw in excel_keywords):
+            excel_data = st.session_state.excel_context
+            if "Pre-loaded Excel Data" not in sources:
+                sources.append("Pre-loaded Excel Data")
+        
+        # Combine KB Context
+        final_context = f"""
+        CONTEXT: {st.session_state.full_papers_context[:300000]}
+        HIGHLIGHTS: {retrieved_text}
+        EXCEL: {excel_data}
+        """
 
     # Smart Table Instruction
     force_table = ""
@@ -292,16 +316,16 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
 
     # D. Build Prompt
     final_prompt = f"""You are the SAFI Research Assistant.
-    CONTEXT: {st.session_state.full_papers_context[:300000]}
-    HIGHLIGHTS: {retrieved_text}
-    EXCEL: {excel_data}
-    {user_uploaded_context}
+    
+    {final_context}
     
     QUESTION: {prompt}
     {force_table}
-    Answer based on context. Cite papers if used."""
+    Answer STRICTLY based on the provided Context/File above. 
+    If the answer is not in the context, say 'I cannot find that in this document.'
+    """
 
-    # E. Stream Response into Custom Div
+    # E. Stream Response
     try:
         if model:
             stream = model.generate_content(final_prompt, stream=True)
