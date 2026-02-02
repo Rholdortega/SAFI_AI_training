@@ -239,7 +239,7 @@ for msg in st.session_state.messages:
         """, unsafe_allow_html=True)
 
 # 2. CHAT INPUT
-if prompt := st.chat_input("Ask about your documents..."):
+if prompt := st.chat_input("Type your research question here..."):
     # Save & Show User Message immediately
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.markdown(f"""
