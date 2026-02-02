@@ -141,30 +141,16 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-    # ============ BETA MESSAGE FOOTER ============
+    # ============ BETA MESSAGE FOOTER (MINIMAL) ============
     st.markdown("---")
     st.markdown(
         """
-        <div style="text-align: center; color: #666; font-size: 0.8rem; background-color: #dcebdc; padding: 10px; border-radius: 10px;">
-            🧪 <b>BETA VERSION</b><br>
-            <i>SAFI Research Intelligence</i> may make mistakes. <br>
-            Please verify all generated results.
+        <div style="text-align: center; color: #666; font-size: 0.8rem; background-color: #dcebdc; padding: 5px; border-radius: 5px;">
+            🧪 <b>BETA VERSION</b>
         </div>
         """, 
         unsafe_allow_html=True
     )
-
-# Initialize Model
-if GEMINI_API_KEY:
-    try:
-        model = genai.GenerativeModel(
-            model_name=current_model_name,
-            generation_config=current_config
-        )
-    except Exception as e:
-        st.error(f"Error initializing model: {e}")
-        model = None
-
 # ============ APP INITIALIZATION ============
 if "initialized" not in st.session_state:
     with st.spinner("Initializing Knowledge Base..."):
