@@ -141,6 +141,19 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
+    # ============ BETA MESSAGE FOOTER ============
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style="text-align: center; color: #666; font-size: 0.8rem; background-color: #dcebdc; padding: 10px; border-radius: 10px;">
+            🧪 <b>BETA VERSION</b><br>
+            <i>SAFI Research Intelligence</i> may make mistakes. <br>
+            Please verify all generated results.
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
 # Initialize Model
 if GEMINI_API_KEY:
     try:
