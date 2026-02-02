@@ -8,6 +8,13 @@ import numpy as np
 import os
 import pickle
 import pandas as pd
+import io
+
+# Try importing pypdf for PDF processing
+try:
+    import pypdf
+except ImportError:
+    pypdf = None
 
 # ============ PAGE CONFIGURATION ============
 st.set_page_config(
@@ -136,6 +143,33 @@ with st.sidebar:
         
     st.caption(f"Active Model: {current_model_name}")
     st.divider()
+
+    # ============ FILE UPLOADER ============
+    st.markdown("### 📂 Upload Data")
+    uploaded_file = st.file_uploader("Add context (PDF/Excel)", type=['pdf', 'xlsx'])
+    
+    uploaded_text_content = ""
+    
+    if uploaded_file:
+        try:
+            if uploaded_file.name.endswith(".pdf"):
+                if pypdf:
+                    reader = pypdf.PdfReader(uploaded_file)
+                    for page in reader.pages:
+                        uploaded_text_content += page.extract_text() or ""
+                    st.success("PDF Loaded!")
+                else:
+                    st.error("Please install `pypdf` to process PDFs.")
+            
+            elif uploaded_file.name.endswith(".xlsx"):
+                df_upload = pd.read_excel(uploaded_file)
+                uploaded_text_content = df_upload.to_string()
+                st.success("Excel Loaded!")
+                
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+
+    st.divider()
     
     if st.button("Clear Conversation"):
         st.session_state.messages = []
@@ -151,6 +185,18 @@ with st.sidebar:
         """, 
         unsafe_allow_html=True
     )
+
+# Initialize Model
+if GEMINI_API_KEY:
+    try:
+        model = genai.GenerativeModel(
+            model_name=current_model_name,
+            generation_config=current_config
+        )
+    except Exception as e:
+        st.error(f"Error initializing model: {e}")
+        model = None
+
 # ============ APP INITIALIZATION ============
 if "initialized" not in st.session_state:
     with st.spinner("Initializing Knowledge Base..."):
@@ -168,7 +214,7 @@ if "messages" not in st.session_state:
 # ============ MAIN CHAT INTERFACE ============
 st.markdown("<div class='main-header'><h1>🎍 SAFI Research Intelligence</h1></div>", unsafe_allow_html=True)
 
-# 1. DISPLAY HISTORY (Using Custom HTML Divs - NO ICONS GUARANTEED)
+# 1. DISPLAY HISTORY (Using Custom HTML Divs)
 for msg in st.session_state.messages:
     if msg["role"] == "user":
         st.markdown(f"""
@@ -201,7 +247,6 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
     """, unsafe_allow_html=True)
 
     # 3. GENERATE ANSWER
-    # We use an empty placeholder to stream content into our custom HTML div
     response_placeholder = st.empty()
     full_response = ""
     sources = []
@@ -234,21 +279,29 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
         if "Pre-loaded Excel Data" not in sources:
             sources.append("Pre-loaded Excel Data")
 
+    # C. Handle Uploaded Data Source
+    user_uploaded_context = ""
+    if uploaded_text_content:
+        user_uploaded_context = f"=== USER UPLOADED FILE ===\n{uploaded_text_content}\n"
+        sources.append("Uploaded File")
+
     # Smart Table Instruction
     force_table = ""
     if any(w in prompt.lower() for w in ["table", "compare", "vs", "list"]):
         force_table = "\nIMPORTANT: The user wants a comparison. FORMAT AS A MARKDOWN TABLE."
 
-    # C. Build Prompt
+    # D. Build Prompt
     final_prompt = f"""You are the SAFI Research Assistant.
     CONTEXT: {st.session_state.full_papers_context[:300000]}
     HIGHLIGHTS: {retrieved_text}
     EXCEL: {excel_data}
+    {user_uploaded_context}
+    
     QUESTION: {prompt}
     {force_table}
-    Answer based on context. Cite papers."""
+    Answer based on context. Cite papers if used."""
 
-    # D. Stream Response into Custom Div
+    # E. Stream Response into Custom Div
     try:
         if model:
             stream = model.generate_content(final_prompt, stream=True)
@@ -256,7 +309,6 @@ if prompt := st.chat_input("Ask about fiber morphology, kappa numbers, or specif
             for chunk in stream:
                 if chunk.text:
                     full_response += chunk.text
-                    # Update placeholder with new HTML frame every time text arrives
                     response_placeholder.markdown(f"""
                     <div class="assistant-message">
                         <b>SAFI AI:</b><br>{full_response}
