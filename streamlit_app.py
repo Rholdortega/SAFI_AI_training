@@ -6,6 +6,7 @@ import streamlit as st
 import google.generativeai as genai
 import numpy as np
 import os
+import re
 import pickle
 import pandas as pd
 import io
@@ -32,21 +33,47 @@ PRELOADED_EXCEL_SHEET = "Fiber morphology"
 EMBEDDINGS_FILE = "data/safi_embeddings.pkl"
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 
-# ============ LAB IMAGES ============
-LAB_IMAGES = {
-    "wheat straw": "images/Wheat straw.png",   # matches your real filename exactly
-    # add the others as you upload them:
-    # "bamboo": "images/bamboo.png",
-    # "miscanthus": "images/miscanthus.png",
-    # "eucalyptus": "images/eucalyptus.png",
+# ============ LAB IMAGES (robust keyword matching) ============
+IMG_DIR = "images"
+VALID_EXT = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp")
+
+# Map a display label -> keywords to look for in BOTH the user's prompt and the filenames.
+LAB_KEYWORDS = {
+    "Wheat Straw": ["wheat straw", "wheatstraw", "wheat"],
+    "Bamboo":      ["bamboo"],
+    "Miscanthus":  ["miscanthus"],
+    "Eucalyptus":  ["eucalyptus"],
 }
 
+def _norm(s: str) -> str:
+    """Lowercase and strip everything except letters/digits (kills spaces, '(1)', case)."""
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+def find_image_file(keywords):
+    """Return the path of the first image in images/ whose normalized name matches a keyword."""
+    if not os.path.isdir(IMG_DIR):
+        return None
+    norm_keys = [_norm(k) for k in keywords]
+    for fname in os.listdir(IMG_DIR):
+        if fname.lower().endswith(VALID_EXT):
+            n = _norm(fname)
+            if any(k in n for k in norm_keys):
+                return os.path.join(IMG_DIR, fname)
+    return None
+
 def load_lab_image(prompt_text, max_w=1000):
-    """If the prompt mentions a feedstock with a lab image, return (pil_img, html, label)."""
+    """If the prompt mentions a feedstock that has an image on disk, return (pil_img, html, label)."""
     t = prompt_text.lower()
-    for name, path in LAB_IMAGES.items():
-        if name in t and os.path.exists(path):
-            img = Image.open(path).convert("RGB")
+    for label, keywords in LAB_KEYWORDS.items():
+        if any(k in t for k in keywords):
+            path = find_image_file(keywords)
+            if not path:
+                continue
+            try:
+                img = Image.open(path).convert("RGB")
+            except Exception:
+                st.warning(f"Found '{os.path.basename(path)}' but it couldn't be opened as an image.")
+                return None, "", ""
             if img.width > max_w:
                 img = img.resize((max_w, int(img.height * max_w / img.width)))
             buf = io.BytesIO()
@@ -54,8 +81,8 @@ def load_lab_image(prompt_text, max_w=1000):
             b64 = base64.b64encode(buf.getvalue()).decode()
             html = (f"<br><img src='data:image/png;base64,{b64}' "
                     f"style='max-width:100%;border-radius:8px;margin-top:0.5rem;'/>"
-                    f"<div style='font-size:0.8rem;color:#5a7a5a;'>Lab image — {name.title()}</div>")
-            return img, html, name.title()
+                    f"<div style='font-size:0.8rem;color:#5a7a5a;'>Lab image — {label}</div>")
+            return img, html, label
     return None, "", ""
 
 # ============ STYLING (CUSTOM BUBBLES) ============
@@ -254,7 +281,6 @@ for msg in st.session_state.messages:
         </div>
         """, unsafe_allow_html=True)
     else:
-        # Build source HTML if sources exist
         source_html = ""
         if "sources" in msg and msg["sources"]:
             s_list = " • ".join(msg["sources"])
@@ -282,12 +308,11 @@ if prompt := st.chat_input("Type your research question here..."):
     response_placeholder = st.empty()
     full_response = ""
     sources = []
+    final_context = ""
 
     # ==========================================
     # LOGIC SWITCH: UPLOADED FILE VS DATABASE
     # ==========================================
-    final_context = ""
-
     if uploaded_text_content:
         # --- PATH A: FOCUSED MODE (Uploaded File Only) ---
         final_context = f"=== USER UPLOADED FILE (STRICT FOCUS) ===\n{uploaded_text_content}\n"
@@ -336,7 +361,7 @@ if prompt := st.chat_input("Type your research question here..."):
     if any(w in prompt.lower() for w in ["table", "compare", "vs", "list"]):
         force_table = "\nIMPORTANT: The user wants a comparison. FORMAT AS A MARKDOWN TABLE."
 
-    # D. Build Prompt  (note: this f-string is fully closed before any real code runs)
+    # D. Build Prompt  (f-string fully closed before any real code runs)
     final_prompt = f"""You are the SAFI Research Assistant.
 
     {final_context}
@@ -347,7 +372,7 @@ if prompt := st.chat_input("Type your research question here..."):
     If the answer is not in the context, say 'I cannot find that in this document.'
     """
 
-    # D.2 Lab image detection  (REAL CODE — outside the prompt string)
+    # D.2 Lab image detection (REAL CODE — outside the prompt string)
     lab_img, image_html, img_label = load_lab_image(prompt)
     if lab_img is not None:
         final_prompt += (
