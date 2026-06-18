@@ -184,16 +184,16 @@ with st.sidebar:
     )
 
     if mode == "🚀 Fast Mode":
-        current_model_name = "gemini-3.5-flash"  # Upgraded from gemini-3-flash-preview
+        current_model_name = "gemini-3.5-flash"  
         current_config = {
             "temperature": 0.1,
-            "max_output_tokens": 2000
+            "max_output_tokens": 8192
         }
     else:
-        current_model_name = "gemini-3.1-pro-preview"  # Upgraded from gemini-3-pro-preview
+        current_model_name = "gemini-3.1-pro-preview"  
         current_config = {
             "temperature": 0.4,
-            "max_output_tokens": 4000
+            "max_output_tokens": 8192
         }
 
     st.caption(f"Active Model: {current_model_name}")
@@ -334,7 +334,7 @@ if prompt := st.chat_input("Type your research question here..."):
                 norms = np.linalg.norm(embeddings_array, axis=1) * np.linalg.norm(query_embedding)
                 similarities = dot_products / norms
 
-                top_indices = np.argsort(similarities)[-6:][::-1]
+                top_indices = np.argsort(similarities)[-20:][::-1]
                 relevant_indices = [i for i in top_indices if similarities[i] >= 0.35]
 
                 retrieved_text = "\n---\n".join([st.session_state.chunks[i] for i in relevant_indices])
