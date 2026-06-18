@@ -183,21 +183,21 @@ with st.sidebar:
         captions=["Instant answers (Flash)", "Deep reasoning (Pro)"]
     )
 
-if mode == "🚀 Fast Mode":
-    current_model_name = "gemini-3.5-flash"  # Upgraded from gemini-3-flash-preview
-    current_config = {
-        "temperature": 0.1,
-        "max_output_tokens": 2000
-    }
-else:
-    current_model_name = "gemini-3.1-pro-preview"  # Upgraded from gemini-3-pro-preview
-    current_config = {
-        "temperature": 0.4,
-        "max_output_tokens": 4000
-    }
+    if mode == "🚀 Fast Mode":
+        current_model_name = "gemini-3.5-flash"  # Upgraded from gemini-3-flash-preview
+        current_config = {
+            "temperature": 0.1,
+            "max_output_tokens": 2000
+        }
+    else:
+        current_model_name = "gemini-3.1-pro-preview"  # Upgraded from gemini-3-pro-preview
+        current_config = {
+            "temperature": 0.4,
+            "max_output_tokens": 4000
+        }
 
-st.caption(f"Active Model: {current_model_name}")
-st.divider()
+    st.caption(f"Active Model: {current_model_name}")
+    st.divider()
 
     # ============ FILE UPLOADER ============
     st.markdown("### 📂 Upload Data")
@@ -420,6 +420,5 @@ if prompt := st.chat_input("Type your research question here..."):
             })
         else:
             st.error("Model Error")
-
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Generation Error: {e}")
